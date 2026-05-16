@@ -1,31 +1,26 @@
-from BayCalculator import BayCalculator
-from DayProfile import DayProfile
+from BayResult import BayResult
 
 class apiModel:
-    def __init__(self, name, description, parameters):
-        self.profile = DayProfile(parameters['dayProfile'], parameters['totalSessionsPerDay'])
-        self.calculator = BayCalculator()
-    
-    def run(self):
-        self.calculator.calcAllHours(self.profile)
-        self.calculator.applyBuffer()
-        return self.calculator.result.getSummary()
-    
-    def setProfile(self, dayProfile, totalSessionsPerDay):
-        #validate dayProfile adds up to 1 and totalSessionsPerDay is a positive integer
-        if not all(isinstance(x, (int, float)) and x >= 0 for x in dayProfile):
-            raise ValueError("dayProfile must be a list of non-negative numbers")
-        if sum(dayProfile) != 1:
-            raise ValueError("dayProfile must add up to 1")
-        if not isinstance(totalSessionsPerDay, int) or totalSessionsPerDay <= 0:
-            raise ValueError("totalSessionsPerDay must be a positive integer")  
-        self.profile = DayProfile(dayProfile, totalSessionsPerDay)  
+        total_sessions: int = 1000,
+        avg_service_time: float = 2.0,  # minutes
+        util_target: float = 0.85,
+        safety_buffer: float = 1.1,
 
-    def setCalculator(self, avgDwellTime, safetyBuffer):
-        #validate avgDwellTime is a positive number and does not exceed 600 and safetyBuffer is a non-negative number and is not greater than the avgDwellTime
-        if not isinstance(avgDwellTime, (int, float)) or avgDwellTime <= 0 or avgDwellTime > 600:
-            raise ValueError("avgDwellTime must be a positive number not exceeding 600")
-        if not isinstance(safetyBuffer, (int, float)) or safetyBuffer < 0 or safetyBuffer > avgDwellTime:
-            raise ValueError("safetyBuffer must be a non-negative number not greater than avgDwellTime")
-        self.calculator.avgDwellTime = avgDwellTime
-        self.calculator.safetyBuffer = safetyBuffer 
+        def set_profile(self, total_sessions: int, hourly_dist: list[float]) -> None:
+            pass
+
+        def set_calculator(
+            self, avg_service_time: float, util_target: float, safety_buffer: float
+        ) -> None:
+            pass
+
+        def run(self) -> BayResult:
+            if not self.profile or not self.calculator:
+                raise ValueError("Profile and calculator must be set before running")
+            if not self.profile.validate_distribution():
+                raise ValueError("Hourly distribution does not sum to 1.0")
+            return self.calculator.calc_all_hours(self.profile)
+
+        def reset(self) -> None:
+            self.profile = None
+            self.calculator = None
