@@ -1,31 +1,32 @@
-from BayResult import BayResult
-from BayCalculator import BayCalculator
-from DayProfile import DayProfile
+from .BayResult import BayResult
+from .BayCalculator import BayCalculator
+from .DayProfile import DayProfile
+
 
 class apiModel:
-        def __init__(self):
-            self.profile: DayProfile = None
-            self.calculator: BayCalculator = None
-            self.total_sessions: int = 1000
-            self.avg_service_time: float = 2.0  # minutes
-            self.util_target: float = 0.85
-            self.safety_buffer: float = 1.1
+    def __init__(self):
+        self.profile: DayProfile = None
+        self.calculator: BayCalculator = None
 
-        def set_profile(self, total_sessions: int, hourly_dist: list[float]) -> None:
-            pass
+    def set_profile(self, total_sessions: int, hourly_dist: list[float]) -> None:
+        self.total_sessions = total_sessions
+        self.profile = DayProfile(total_sessions, hourly_dist)
 
-        def set_calculator(
-            self, avg_service_time: float, util_target: float, safety_buffer: float
-        ) -> None:
-            pass
+    def set_calculator(
+        self, avg_service_time: float, util_target: float, safety_buffer: float
+    ) -> None:
+        self.avg_service_time = avg_service_time
+        self.util_target = util_target
+        self.safety_buffer = safety_buffer
+        self.calculator = BayCalculator(avg_service_time, util_target, safety_buffer)
 
-        def run(self) -> BayResult:
-            if not self.profile or not self.calculator:
-                raise ValueError("Profile and calculator must be set before running")
-            if not self.profile.validate_distribution():
-                raise ValueError("Hourly distribution does not sum to 1.0")
-            return self.calculator.calc_all_hours(self.profile)
+    def run(self) -> BayResult:
+        if not self.profile or not self.calculator:
+            raise ValueError("Profile and calculator must be set before running")
+        if not self.profile.validate_distribution():
+            raise ValueError("Hourly distribution does not sum to 1.0")
+        return self.calculator.calc_all_hours(self.profile)
 
-        def reset(self) -> None:
-            self.profile = None
-            self.calculator = None
+    def reset(self) -> None:
+        self.profile = None
+        self.calculator = None

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EV Charging Bay Calculator</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ EV Charging Bay Calculator</h1>
+            <p class="subtitle">Estimate the number of charging bays needed for your site</p>
+        </header>
+
+        <main>
+            <div class="content-wrapper">
+                <!-- Input Panel -->
+                <section class="input-panel">
+                    <h2>Configuration</h2>
+
+                    <div class="form-section">
+                        <h3>Charging Profile</h3>
+
+                        <div class="form-group">
+                            <label for="total-sessions">Total Daily Sessions:</label>
+                            <input type="number" id="total-sessions" min="1" value="100" placeholder="e.g., 100">
+                            <small>Expected number of charging sessions per day</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="hourly-preset">Hourly Distribution Preset:</label>
+                            <select id="hourly-preset">
+                                <option value="even">Even Distribution</option>
+                                <option value="peak-morning" selected>Peak Morning/Evening</option>
+                                <option value="peak-afternoon">Peak Afternoon</option>
+                                <option value="night-friendly">Night-Friendly (Off-Peak)</option>
+                                <option value="custom">Custom (Manual Edit)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="hourly-dist">Hourly Distribution (24 hours):</label>
+                            <textarea id="hourly-dist" rows="8"
+                                placeholder="Enter 24 comma-separated values between 0 and 1"></textarea>
+                            <small>Values should sum to 1.0. One value per hour (0-23)</small>
+                            <div class="distribution-info">
+                                <span id="dist-sum">Sum: 0.00</span>
+                                <button type="button" id="normalize-btn" class="btn-small">Normalize</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>Calculator Parameters</h3>
+
+                        <div class="form-group">
+                            <label for="avg-service-time">Average Service Time (minutes):</label>
+                            <input type="number" id="avg-service-time" min="0" step="0.5" value="35"
+                                placeholder="e.g., 35">
+                            <small>Average charging duration in minutes</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="util-target">Utilisation Target (0-1):</label>
+                            <input type="number" id="util-target" min="0" max="1" step="0.05" value="0.8"
+                                placeholder="e.g., 0.8">
+                            <small>Target utilisation rate (0.8 = 80%)</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="safety-buffer">Safety Buffer (0-1):</label>
+                            <input type="number" id="safety-buffer" min="0" max="1" step="0.05" value="0.15"
+                                placeholder="e.g., 0.15">
+                            <small>Additional buffer for variability (0.15 = 15%)</small>
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="load-example-btn" class="btn btn-secondary">Load Example</button>
+                        <button id="calculate-btn" class="btn btn-primary">Calculate</button>
+                    </div>
+
+                    <div id="error-message" class="error-message"></div>
+                </section>
+
+                <!-- Results Panel -->
+                <section class="results-panel">
+                    <h2>Results</h2>
+
+                    <div id="results-summary" class="results-summary hidden">
+                        <div class="summary-box">
+                            <h3>Maximum Bays Needed</h3>
+                            <div class="summary-value" id="max-bays">-</div>
+                        </div>
+                    </div>
+
+                    <div id="results-table" class="results-table hidden">
+                        <h3>Hourly Breakdown</h3>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Hour</th>
+                                        <th>Sessions</th>
+                                        <th>Utilisation</th>
+                                        <th>Bays Needed</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="results-tbody">
+                                    <!-- Populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="results-chart" class="results-chart hidden">
+                        <h3>Bays Required by Hour</h3>
+                        <canvas id="chart-canvas"></canvas>
+                    </div>
+
+                    <div id="no-results" class="no-results">
+                        <p>Click "Calculate" to see results</p>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <footer>
+            <p>EV Charging Infrastructure Demand Model</p>
+        </footer>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+
+</html>
