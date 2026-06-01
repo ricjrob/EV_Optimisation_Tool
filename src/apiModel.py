@@ -1,10 +1,15 @@
 from BayResult import BayResult
+from BayCalculator import BayCalculator
+from DayProfile import DayProfile
 
 class apiModel:
-        total_sessions: int = 1000,
-        avg_service_time: float = 2.0,  # minutes
-        util_target: float = 0.85,
-        safety_buffer: float = 1.1,
+        def __init__(self):
+            self.profile: DayProfile = None
+            self.calculator: BayCalculator = None
+            self.total_sessions: int = 1000
+            self.avg_service_time: float = 2.0  # minutes
+            self.util_target: float = 0.85
+            self.safety_buffer: float = 1.1
 
         def set_profile(self, total_sessions: int, hourly_dist: list[float]) -> None:
             pass

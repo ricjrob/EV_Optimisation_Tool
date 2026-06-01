@@ -1,8 +1,8 @@
 class DayProfile:
     def __init__(self, day_profile, totalSessionsPerDay):
-        self.totalSessionsPerDay = totalSessionsPerDay
-        self.dayProfile = day_profile
-        self.peakHour = self.get_peak_hour()
+        self.total_sessions_per_day = totalSessionsPerDay
+        self.hourly_distribution = self.hourly_distribution
+        self.get_day_profile = day_profile
         self.peakSessionsPerHour = 0
 
     def get_day_profile(self):
@@ -18,25 +18,25 @@ class DayProfile:
                 peakHour = i
         return peakHour
     
-    def setHourlyDistribution(self):
-        hourlyDistribution = (self.get_total_sessions_per_day() / 24) * self.get_day_profile()
+    def set_hourly_distribution_proportional(self, dist: list[float] = None):
+        if dist is None:
+            hourlyDistribution = (self.get_total_sessions_per_day() / 24) * self.get_day_profile()
+        else:
+            hourlyDistribution = dist
         self.hourlyDistribution = hourlyDistribution
-        self.peakSessionsPerHour = self.hourlyDistribution[self.peakHour]
-
-    def get_sessions_for_hour(self, hour: int) -> int:
-        # Returns round(total_sessions * hourly_distribution[hour])
-        # The only place the multiplication happens — keeps it consistent and allows for caching if needed
-        pass
-
-    def get_peak_hour(self) -> int:
-        # Returns argmax of hourly_distribution
-        # Cached after first call
-        pass
+        self.validate_distribution()
 
     def validate_distribution(self) -> bool:
         # Checks len == 24, all values >= 0, sum within tolerance of 1.0
         # e.g. abs(sum(dist) - 1.0) < 0.001
-        pass
+        if len (self.dayProfile) != 24:
+            return False
+        if any(v < 0 for v in self.dayProfile):
+            return False
+        total = sum(self.dayProfile)        
+        if abs(total - 1.0) > 0.001:
+            return False
+        return True
 
     def set_hourly_distribution(self, raw: list[float]) -> None:
         total = sum(raw)
