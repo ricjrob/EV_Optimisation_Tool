@@ -33,10 +33,9 @@
                         <div class="form-group">
                             <label for="hourly-preset">Hourly Distribution Preset:</label>
                             <select id="hourly-preset">
-                                <option value="even">Even Distribution</option>
-                                <option value="peak-morning" selected>Peak Morning/Evening</option>
-                                <option value="peak-afternoon">Peak Afternoon</option>
-                                <option value="night-friendly">Night-Friendly (Off-Peak)</option>
+                                <option value="flat" selected>Flat</option>
+                                <option value="morning_peak">Morning Peak</option>
+                                <option value="commuter_double_peak">Commuter Double Peak</option>
                                 <option value="custom">Custom (Manual Edit)</option>
                             </select>
                         </div>
@@ -44,8 +43,9 @@
                         <div class="form-group">
                             <label for="hourly-dist">Hourly Distribution (24 hours):</label>
                             <textarea id="hourly-dist" rows="8"
-                                placeholder="Enter 24 comma-separated values between 0 and 1"></textarea>
-                            <small>Values should sum to 1.0. One value per hour (0-23)</small>
+                                placeholder="E.g., Hour 0: 0.04, Hour 1: 0.04, Hour 2: 0.04, ..."></textarea>
+                            <small>Values should sum to 1.0. Format: Hour [0-23]: [value]. Values between 0 and
+                                1</small>
                             <div class="distribution-info">
                                 <span id="dist-sum">Sum: 0.00</span>
                                 <button type="button" id="normalize-btn" class="btn-small">Normalize</button>

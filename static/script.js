@@ -18,31 +18,8 @@ const noResults = document.getElementById('no-results');
 const maxBaysDisplay = document.getElementById('max-bays');
 const resultsTbody = document.getElementById('results-tbody');
 
-// Preset distributions
-const presets = {
-    even: Array(24).fill(1 / 24),
-    'peak-morning': [
-        0.02, 0.02, 0.02, 0.02, 0.03,  // 0-4
-        0.05, 0.06, 0.07, 0.08, 0.08,  // 5-9
-        0.08, 0.08, 0.07, 0.06, 0.05,  // 10-14
-        0.06, 0.07, 0.08, 0.08, 0.07,  // 15-19
-        0.06, 0.04, 0.03, 0.02          // 20-23
-    ],
-    'peak-afternoon': [
-        0.02, 0.02, 0.02, 0.02, 0.02,  // 0-4
-        0.03, 0.04, 0.05, 0.05, 0.06,  // 5-9
-        0.07, 0.08, 0.09, 0.09, 0.08,  // 10-14
-        0.09, 0.09, 0.08, 0.07, 0.06,  // 15-19
-        0.05, 0.04, 0.03, 0.02          // 20-23
-    ],
-    'night-friendly': [
-        0.03, 0.02, 0.01, 0.01, 0.01,  // 0-4
-        0.02, 0.03, 0.04, 0.05, 0.05,  // 5-9
-        0.05, 0.05, 0.05, 0.05, 0.05,  // 10-14
-        0.05, 0.05, 0.05, 0.04, 0.03,  // 15-19
-        0.06, 0.08, 0.09, 0.06          // 20-23
-    ]
-};
+// Presets object - will be populated from API
+let presets = {};
 
 // Event Listeners
 calculateBtn.addEventListener('click', handleCalculate);
@@ -53,15 +30,46 @@ hourlyDistInput.addEventListener('input', updateDistributionSum);
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    applyPreset();
+    loadPresetsFromAPI();
     updateDistributionSum();
 });
+
+// Load presets from API
+async function loadPresetsFromAPI() {
+    try {
+        const totalSessions = parseInt(totalSessionsInput.value) || 100;
+        const response = await fetch(`/api/presets?total_sessions=${totalSessions}`);
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Failed to load presets:', data.error);
+            showError('Failed to load preset distributions');
+            return;
+        }
+
+        presets = {
+            flat: data.flat,
+            morning_peak: data.morning_peak,
+            commuter_double_peak: data.commuter_double_peak
+        };
+
+        // Apply the default preset
+        applyPreset();
+    } catch (error) {
+        console.error('Error loading presets:', error);
+        showError('Failed to load preset distributions');
+    }
+}
 
 // Apply preset distribution
 function applyPreset() {
     const preset = hourlyPresetSelect.value;
     if (preset !== 'custom' && presets[preset]) {
-        hourlyDistInput.value = presets[preset].map(v => v.toFixed(4)).join(', ');
+        // Format with hour labels and 2 decimal places
+        const formattedDist = presets[preset]
+            .map((v, i) => `Hour ${i}: ${v.toFixed(2)}`)
+            .join(', ');
+        hourlyDistInput.value = formattedDist;
         updateDistributionSum();
     }
 }
@@ -71,7 +79,7 @@ function updateDistributionSum() {
     const values = parseDistribution();
     if (values) {
         const sum = values.reduce((a, b) => a + b, 0);
-        distSum.textContent = `Sum: ${sum.toFixed(4)}`;
+        distSum.textContent = `Sum: ${sum.toFixed(2)}`;
 
         // Change color based on validity
         if (Math.abs(sum - 1.0) < 0.001) {
@@ -90,19 +98,32 @@ function parseDistribution() {
     if (!text) return null;
 
     try {
-        const values = text.split(',').map(v => parseFloat(v.trim()));
+        // Split by comma and extract numeric values
+        const entries = text.split(',').map(entry => {
+            const trimmed = entry.trim();
+            // If it contains "Hour", extract the value after the colon
+            if (trimmed.includes('Hour')) {
+                const colonIndex = trimmed.indexOf(':');
+                if (colonIndex !== -1) {
+                    const valueStr = trimmed.substring(colonIndex + 1).trim();
+                    return parseFloat(valueStr);
+                }
+            }
+            // Otherwise just parse as a number
+            return parseFloat(trimmed);
+        });
 
-        if (values.length !== 24) {
-            showError(`Distribution must have exactly 24 values, got ${values.length}`);
+        if (entries.length !== 24) {
+            showError(`Distribution must have exactly 24 values, got ${entries.length}`);
             return null;
         }
 
-        if (values.some(v => isNaN(v) || v < 0 || v > 1)) {
+        if (entries.some(v => isNaN(v) || v < 0 || v > 1)) {
             showError('All values must be numbers between 0 and 1');
             return null;
         }
 
-        return values;
+        return entries;
     } catch (e) {
         showError('Invalid distribution format: ' + e.message);
         return null;
@@ -121,7 +142,9 @@ function normalizeDistribution() {
     }
 
     const normalized = values.map(v => v / sum);
-    hourlyDistInput.value = normalized.map(v => v.toFixed(4)).join(', ');
+    hourlyDistInput.value = normalized
+        .map((v, i) => `Hour ${i}: ${v.toFixed(2)}`)
+        .join(', ');
     updateDistributionSum();
     showSuccess('Distribution normalized to sum to 1.0');
 }
@@ -135,7 +158,9 @@ async function loadExample() {
         const data = await response.json();
 
         totalSessionsInput.value = data.profile.total_sessions;
-        hourlyDistInput.value = data.profile.hourly_dist.map(v => v.toFixed(4)).join(', ');
+        hourlyDistInput.value = data.profile.hourly_dist
+            .map((v, i) => `Hour ${i}: ${v.toFixed(2)}`)
+            .join(', ');
         avgServiceTimeInput.value = data.calculator.avg_service_time;
         utilTargetInput.value = data.calculator.util_target;
         safetyBufferInput.value = data.calculator.safety_buffer;

@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from src.apiModel import apiModel
+from src.DayProfile import DayProfile
 import uvicorn
 
 app = FastAPI(title="EV Charging Bay Calculator", version="1.0.0")
@@ -87,6 +88,24 @@ async def calculate(request: CalculationRequest):
         return {"error": str(e)}, 400
     except Exception as e:
         return {"error": f"Calculation failed: {str(e)}"}, 500
+
+
+@app.get("/api/presets")
+async def get_presets(total_sessions: int = 100):
+    """Return available preset distributions from DayProfile class methods"""
+    try:
+        # Call the DayProfile class methods to get actual distributions
+        flat_profile = DayProfile.flat(total_sessions)
+        morning_profile = DayProfile.morning_peak(total_sessions)
+        commuter_profile = DayProfile.commuter_double_peak(total_sessions)
+
+        return {
+            "flat": flat_profile.hourly_distribution,
+            "morning_peak": morning_profile.hourly_distribution,
+            "commuter_double_peak": commuter_profile.hourly_distribution,
+        }
+    except Exception as e:
+        return {"error": f"Failed to load presets: {str(e)}"}, 500
 
 
 @app.get("/api/example")
