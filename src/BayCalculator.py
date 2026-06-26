@@ -1,36 +1,56 @@
+import math
 from .BayResult import BayResult
-from . import DayProfile
+from .DayProfile import DayProfile
 
 
 class BayCalculator:
     def __init__(
         self,
-        avg_service_time: float = 2.0,
+        avg_service_time: float = 0.5,
         util_target: float = 0.85,
-        safety_buffer: float = 1.1,
+        safety_buffer: float = 0.05,
     ):
         self.avg_service_time = avg_service_time
         self.util_target = util_target
         self.safety_buffer = safety_buffer
-        # no result stored here
 
     def calc_all_hours(self, profile: DayProfile) -> BayResult:
-        # compute and return directly, don't assign to self
-        ...
-        return BayResult(...)
+        profile.set_hourly_distribution_proportional()
 
-    def calcBaysPerHour(self, dayProfile: DayProfile):
-        dayProfile.setHourlyDistribution()
-        for i in range(24):
-            sessionsThisHour = dayProfile.hourlyDistribution[i]
-            baysThisHour = (sessionsThisHour * self.avg_service_time) / 60
-            self.result.baysPerHour.append(baysThisHour)
-            if baysThisHour > self.result.peakBays:
-                self.result.peakBays = baysThisHour
-                self.result.peakHour = i
+        if not profile.validate_distribution():
+            raise ValueError(
+                "Hourly distribution must sum to 1.0 and contain 24 non-negative values"
+            )
 
-    def getPeakBays(self):
-        return self.result.peakBays
+        hourly_sessions = [
+            p * profile.get_total_sessions_per_day() for p in profile.get_day_profile()
+        ]
+        bays_per_hour = []
+        util_by_hour = []
+        peak_bays = 0
+        peak_hour = 0
 
-    def applyBuffer(self):
-        self.result.peakBays += (self.safety_buffer / 60) * self.result.peakBays
+        for hour, sessions in enumerate(hourly_sessions):
+            required_bay_hours = sessions * (self.avg_service_time / 60.0)
+            if self.util_target <= 0 or self.util_target > 1:
+                raise ValueError("Utilisation target must be between 0 and 1")
+
+            raw_bays = required_bay_hours / self.util_target
+            buffered_bays = math.ceil(raw_bays * (1 + self.safety_buffer))
+            bays_per_hour.append(int(buffered_bays))
+
+            util = 0.0
+            if buffered_bays > 0:
+                util = min(required_bay_hours / buffered_bays, 1.0)
+            util_by_hour.append(util)
+
+            if buffered_bays > peak_bays:
+                peak_bays = buffered_bays
+                peak_hour = hour
+
+        return BayResult(
+            bays_per_hour=bays_per_hour,
+            peak_bays=peak_bays,
+            peak_hour=peak_hour,
+            util_by_hour=util_by_hour,
+        )

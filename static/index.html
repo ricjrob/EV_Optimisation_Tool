@@ -43,9 +43,8 @@
                         <div class="form-group">
                             <label for="hourly-dist">Hourly Distribution (24 hours):</label>
                             <textarea id="hourly-dist" rows="8"
-                                placeholder="E.g., Hour 0: 0.04, Hour 1: 0.04, Hour 2: 0.04, ..."></textarea>
-                            <small>Values should sum to 1.0. Format: Hour [0-23]: [value]. Values between 0 and
-                                1</small>
+                                placeholder="E.g., [0.04, 0.04, 0.04, ..., 0.04]"></textarea>
+                            <small>Values should sum to 1.0. Enter a JSON array of 24 numbers between 0 and 1.</small>
                             <div class="distribution-info">
                                 <span id="dist-sum">Sum: 0.00</span>
                                 <button type="button" id="normalize-btn" class="btn-small">Normalize</button>
@@ -133,7 +132,7 @@
         </footer>
     </div>
 
-    <script src="/static/script.js"></script>
+    <script src="/static/script.js?v=2"></script>
 </body>
 
 </html>

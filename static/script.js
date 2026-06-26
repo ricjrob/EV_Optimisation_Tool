@@ -61,15 +61,22 @@ async function loadPresetsFromAPI() {
     }
 }
 
+function formatDistribution(dist, decimals = 8) {
+    const fixedValues = dist.map(v => Number(v.toFixed(decimals)));
+    const sumFixed = fixedValues.reduce((acc, v) => acc + v, 0);
+    const delta = 1 - sumFixed;
+    fixedValues[fixedValues.length - 1] = Number((fixedValues[fixedValues.length - 1] + delta).toFixed(decimals));
+    return JSON.stringify(fixedValues, null, 4);
+}
+
 // Apply preset distribution
 function applyPreset() {
     const preset = hourlyPresetSelect.value;
     if (preset !== 'custom' && presets[preset]) {
-        // Format with hour labels and 2 decimal places
-        const formattedDist = presets[preset]
-            .map((v, i) => `Hour ${i}: ${v.toFixed(2)}`)
-            .join(', ');
-        hourlyDistInput.value = formattedDist;
+        const values = presets[preset];
+        const sum = values.reduce((acc, v) => acc + v, 0);
+        const normalized = values.map(v => v / sum);
+        hourlyDistInput.value = formatDistribution(normalized, 8);
         updateDistributionSum();
     }
 }
@@ -79,7 +86,7 @@ function updateDistributionSum() {
     const values = parseDistribution();
     if (values) {
         const sum = values.reduce((a, b) => a + b, 0);
-        distSum.textContent = `Sum: ${sum.toFixed(2)}`;
+        distSum.textContent = `Sum: ${sum.toFixed(8)}`;
 
         // Change color based on validity
         if (Math.abs(sum - 1.0) < 0.001) {
@@ -98,34 +105,25 @@ function parseDistribution() {
     if (!text) return null;
 
     try {
-        // Split by comma and extract numeric values
-        const entries = text.split(',').map(entry => {
-            const trimmed = entry.trim();
-            // If it contains "Hour", extract the value after the colon
-            if (trimmed.includes('Hour')) {
-                const colonIndex = trimmed.indexOf(':');
-                if (colonIndex !== -1) {
-                    const valueStr = trimmed.substring(colonIndex + 1).trim();
-                    return parseFloat(valueStr);
-                }
-            }
-            // Otherwise just parse as a number
-            return parseFloat(trimmed);
-        });
+        const entries = JSON.parse(text);
+        if (!Array.isArray(entries)) {
+            showError('Distribution must be a JSON array of 24 numbers');
+            return null;
+        }
 
         if (entries.length !== 24) {
             showError(`Distribution must have exactly 24 values, got ${entries.length}`);
             return null;
         }
 
-        if (entries.some(v => isNaN(v) || v < 0 || v > 1)) {
+        if (entries.some(v => typeof v !== 'number' || Number.isNaN(v) || v < 0 || v > 1)) {
             showError('All values must be numbers between 0 and 1');
             return null;
         }
 
         return entries;
     } catch (e) {
-        showError('Invalid distribution format: ' + e.message);
+        showError('Invalid JSON distribution format: ' + e.message);
         return null;
     }
 }
@@ -142,9 +140,7 @@ function normalizeDistribution() {
     }
 
     const normalized = values.map(v => v / sum);
-    hourlyDistInput.value = normalized
-        .map((v, i) => `Hour ${i}: ${v.toFixed(2)}`)
-        .join(', ');
+    hourlyDistInput.value = formatDistribution(normalized, 8);
     updateDistributionSum();
     showSuccess('Distribution normalized to sum to 1.0');
 }
@@ -158,13 +154,11 @@ async function loadExample() {
         const data = await response.json();
 
         totalSessionsInput.value = data.profile.total_sessions;
-        hourlyDistInput.value = data.profile.hourly_dist
-            .map((v, i) => `Hour ${i}: ${v.toFixed(2)}`)
-            .join(', ');
+        hourlyDistInput.value = formatDistribution(data.profile.hourly_dist, 8);
         avgServiceTimeInput.value = data.calculator.avg_service_time;
         utilTargetInput.value = data.calculator.util_target;
         safetyBufferInput.value = data.calculator.safety_buffer;
-        hourlyPresetSelect.value = 'peak-morning';
+        hourlyPresetSelect.value = 'flat';
 
         updateDistributionSum();
         clearError();
@@ -190,7 +184,7 @@ async function handleCalculate() {
 
     const sum = hourlyDist.reduce((a, b) => a + b, 0);
     if (Math.abs(sum - 1.0) > 0.001) {
-        showError(`Distribution must sum to 1.0 (current sum: ${sum.toFixed(4)}). Click "Normalize" to fix.`);
+        showError(`Distribution must sum to 1.0 (current sum: ${sum.toFixed(8)}). Click "Normalize" to fix.`);
         return;
     }
 

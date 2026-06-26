@@ -41,18 +41,21 @@ class BayResultResponse(BaseModel):
 model = apiModel()
 
 
+# not used in app
 @app.get("/")
 async def serve_root():
     """Serve the main HTML page"""
     return FileResponse("static/index.html")
 
 
+# not used in app
 @app.post("/api/calculate")
 async def calculate(request: CalculationRequest):
     """Calculate required bays based on profile and calculator settings"""
     try:
         # Set up the model
         model.set_profile(request.profile.total_sessions, request.profile.hourly_dist)
+        model.profile.set_total_sessions(request.profile.total_sessions)
         model.set_calculator(
             request.calculator.avg_service_time,
             request.calculator.util_target,
@@ -90,14 +93,20 @@ async def calculate(request: CalculationRequest):
         return {"error": f"Calculation failed: {str(e)}"}, 500
 
 
+# not used in app
 @app.get("/api/presets")
 async def get_presets(total_sessions: int = 100):
     """Return available preset distributions from DayProfile class methods"""
     try:
         # Call the DayProfile class methods to get actual distributions
         flat_profile = DayProfile.flat(total_sessions)
+        flat_profile.set_hourly_distribution_proportional()
+
         morning_profile = DayProfile.morning_peak(total_sessions)
+        morning_profile.set_hourly_distribution_proportional()
+
         commuter_profile = DayProfile.commuter_double_peak(total_sessions)
+        commuter_profile.set_hourly_distribution_proportional()
 
         return {
             "flat": flat_profile.hourly_distribution,
@@ -108,6 +117,7 @@ async def get_presets(total_sessions: int = 100):
         return {"error": f"Failed to load presets: {str(e)}"}, 500
 
 
+# not used in app
 @app.get("/api/example")
 async def get_example():
     """Return example configuration for testing"""

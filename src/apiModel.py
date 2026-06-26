@@ -10,7 +10,8 @@ class apiModel:
 
     def set_profile(self, total_sessions: int, hourly_dist: list[float]) -> None:
         self.total_sessions = total_sessions
-        self.profile = DayProfile(total_sessions, hourly_dist)
+        self.profile = DayProfile(hourly_dist, total_sessions)
+        self.profile.set_total_sessions(total_sessions)
 
     def set_calculator(
         self, avg_service_time: float, util_target: float, safety_buffer: float
@@ -27,6 +28,7 @@ class apiModel:
             raise ValueError("Hourly distribution does not sum to 1.0")
         return self.calculator.calc_all_hours(self.profile)
 
+    # not used in app
     def reset(self) -> None:
         self.profile = None
         self.calculator = None
