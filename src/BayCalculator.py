@@ -7,11 +7,9 @@ class BayCalculator:
     def __init__(
         self,
         avg_service_time: float = 0.5,
-        util_target: float = 0.85,
         safety_buffer: float = 0.05,
     ):
         self.avg_service_time = avg_service_time
-        self.util_target = util_target
         self.safety_buffer = safety_buffer
 
     def calc_all_hours(self, profile: DayProfile) -> BayResult:
@@ -32,10 +30,7 @@ class BayCalculator:
 
         for hour, sessions in enumerate(hourly_sessions):
             required_bay_hours = sessions * (self.avg_service_time / 60.0)
-            if self.util_target <= 0 or self.util_target > 1:
-                raise ValueError("Utilisation target must be between 0 and 1")
-
-            raw_bays = required_bay_hours / self.util_target
+            raw_bays = required_bay_hours
             buffered_bays = math.ceil(raw_bays * (1 + self.safety_buffer))
             bays_per_hour.append(int(buffered_bays))
 

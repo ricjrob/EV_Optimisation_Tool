@@ -29,25 +29,53 @@
                             <input type="number" id="total-sessions" min="1" value="100" placeholder="e.g., 100">
                             <small>Expected number of charging sessions per day</small>
                         </div>
+                    </div>
 
-                        <div class="form-group">
-                            <label for="hourly-preset">Hourly Distribution Preset:</label>
-                            <select id="hourly-preset">
-                                <option value="flat" selected>Flat</option>
-                                <option value="morning_peak">Morning Peak</option>
-                                <option value="commuter_double_peak">Commuter Double Peak</option>
-                                <option value="custom">Custom (Manual Edit)</option>
-                            </select>
-                        </div>
+                    <div class="form-section">
+                        <div id="distribution-editor" class="distribution-editor">
+                            <div class="distribution-header-row">
+                                <div>
+                                    <h3>Hourly distribution</h3>
+                                    <p class="distribution-subtitle">Drag bars or edit numbers for each hour</p>
+                                </div>
+                                <div class="mode-toggle" role="tablist" aria-label="Distribution mode">
+                                    <button type="button" id="mode-sessions" class="mode-btn active">Sessions</button>
+                                    <button type="button" id="mode-proportion" class="mode-btn">Proportion (%)</button>
+                                </div>
+                            </div>
 
-                        <div class="form-group">
-                            <label for="hourly-dist">Hourly Distribution (24 hours):</label>
-                            <textarea id="hourly-dist" rows="8"
-                                placeholder="E.g., [0.04, 0.04, 0.04, ..., 0.04]"></textarea>
-                            <small>Values should sum to 1.0. Enter a JSON array of 24 numbers between 0 and 1.</small>
-                            <div class="distribution-info">
-                                <span id="dist-sum">Sum: 0.00</span>
-                                <button type="button" id="normalize-btn" class="btn-small">Normalize</button>
+                            <div class="distribution-days-row">
+                                <div id="day-tabs" class="day-tabs"></div>
+                            </div>
+
+                            <div class="distribution-controls-row">
+                                <div class="copy-controls">
+                                    <span>Copy from</span>
+                                    <select id="copy-from-day">
+                                        <option value="">choose day...</option>
+                                    </select>
+                                    <button type="button" id="compare-toggle" class="chip-btn">Compare</button>
+                                    <select id="compare-day" class="hidden"></select>
+                                </div>
+                                <button type="button" id="linked-toggle" class="linked-btn">Same every day</button>
+                            </div>
+
+                            <div class="preset-row">
+                                <button type="button" class="chip-btn" data-preset="office">9-to-5</button>
+                                <button type="button" class="chip-btn" data-preset="retail">Retail</button>
+                                <button type="button" class="chip-btn" data-preset="overnight">Overnight</button>
+                                <button type="button" id="reset-distribution" class="chip-btn">Reset</button>
+                                <button type="button" id="normalize-btn" class="chip-btn primary hidden">Normalize to
+                                    100%</button>
+                            </div>
+
+                            <div id="bars-track" class="bars-track"></div>
+                            <div id="hour-labels" class="hour-labels"></div>
+                            <div id="hour-grid" class="hour-grid"></div>
+
+                            <div class="distribution-footer">
+                                <span id="dist-total-label">Total sessions</span>
+                                <span id="dist-sum">0 sessions</span>
                             </div>
                         </div>
                     </div>
@@ -60,13 +88,6 @@
                             <input type="number" id="avg-service-time" min="0" step="0.5" value="35"
                                 placeholder="e.g., 35">
                             <small>Average charging duration in minutes</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="util-target">Utilisation Target (0-1):</label>
-                            <input type="number" id="util-target" min="0" max="1" step="0.05" value="0.8"
-                                placeholder="e.g., 0.8">
-                            <small>Target utilisation rate (0.8 = 80%)</small>
                         </div>
 
                         <div class="form-group">

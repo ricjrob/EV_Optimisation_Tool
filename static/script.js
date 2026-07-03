@@ -1,15 +1,26 @@
-// DOM Elements
+// DOM elements
 const totalSessionsInput = document.getElementById('total-sessions');
-const hourlyPresetSelect = document.getElementById('hourly-preset');
-const hourlyDistInput = document.getElementById('hourly-dist');
 const avgServiceTimeInput = document.getElementById('avg-service-time');
-const utilTargetInput = document.getElementById('util-target');
 const safetyBufferInput = document.getElementById('safety-buffer');
 const calculateBtn = document.getElementById('calculate-btn');
 const loadExampleBtn = document.getElementById('load-example-btn');
 const normalizeBtn = document.getElementById('normalize-btn');
 const errorMessage = document.getElementById('error-message');
+
+const modeSessionsBtn = document.getElementById('mode-sessions');
+const modeProportionBtn = document.getElementById('mode-proportion');
+const dayTabs = document.getElementById('day-tabs');
+const copyFromDay = document.getElementById('copy-from-day');
+const compareToggle = document.getElementById('compare-toggle');
+const compareDay = document.getElementById('compare-day');
+const linkedToggle = document.getElementById('linked-toggle');
+const barsTrack = document.getElementById('bars-track');
+const hourLabels = document.getElementById('hour-labels');
+const hourGrid = document.getElementById('hour-grid');
+const distTotalLabel = document.getElementById('dist-total-label');
 const distSum = document.getElementById('dist-sum');
+const resetDistributionBtn = document.getElementById('reset-distribution');
+const presetButtons = Array.from(document.querySelectorAll('[data-preset]'));
 
 const resultsSummary = document.getElementById('results-summary');
 const resultsTable = document.getElementById('results-table');
@@ -18,149 +29,361 @@ const noResults = document.getElementById('no-results');
 const maxBaysDisplay = document.getElementById('max-bays');
 const resultsTbody = document.getElementById('results-tbody');
 
-// Presets object - will be populated from API
-let presets = {};
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-// Event Listeners
-calculateBtn.addEventListener('click', handleCalculate);
-loadExampleBtn.addEventListener('click', loadExample);
-normalizeBtn.addEventListener('click', normalizeDistribution);
-hourlyPresetSelect.addEventListener('change', applyPreset);
-hourlyDistInput.addEventListener('input', updateDistributionSum);
+const PRESETS = {
+    office: [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
+    retail: [0, 0, 0, 0, 0, 0, 1, 2, 4, 7, 9, 11, 12, 12, 11, 12, 13, 12, 10, 7, 4, 2, 1, 0],
+    overnight: [10, 9, 8, 7, 6, 4, 3, 2, 2, 3, 4, 5, 5, 5, 5, 5, 5, 6, 7, 8, 9, 10, 11, 11]
+};
 
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    loadPresetsFromAPI();
-    updateDistributionSum();
-});
+const state = {
+    mode: 'sessions',
+    linked: true,
+    activeDay: 'Mon',
+    ghostDay: null,
+    draggingHour: null,
+    dayValues: initDayValues()
+};
 
-// Load presets from API
-async function loadPresetsFromAPI() {
-    try {
-        const totalSessions = parseInt(totalSessionsInput.value) || 100;
-        const response = await fetch(`/api/presets?total_sessions=${totalSessions}`);
-        const data = await response.json();
-
-        if (data.error) {
-            console.error('Failed to load presets:', data.error);
-            showError('Failed to load preset distributions');
-            return;
-        }
-
-        presets = {
-            flat: data.flat,
-            morning_peak: data.morning_peak,
-            commuter_double_peak: data.commuter_double_peak
-        };
-
-        // Apply the default preset
-        applyPreset();
-    } catch (error) {
-        console.error('Error loading presets:', error);
-        showError('Failed to load preset distributions');
-    }
+function initDayValues() {
+    const init = {};
+    DAYS.forEach(day => {
+        init[day] = PRESETS.office.slice();
+    });
+    return init;
 }
 
-function formatDistribution(dist, decimals = 8) {
-    const fixedValues = dist.map(v => Number(v.toFixed(decimals)));
-    const sumFixed = fixedValues.reduce((acc, v) => acc + v, 0);
-    const delta = 1 - sumFixed;
-    fixedValues[fixedValues.length - 1] = Number((fixedValues[fixedValues.length - 1] + delta).toFixed(decimals));
-    return JSON.stringify(fixedValues, null, 4);
+function hourLabel(hour) {
+    const period = hour < 12 ? 'am' : 'pm';
+    const display = hour % 12 === 0 ? 12 : hour % 12;
+    return `${display}${period}`;
 }
 
-// Apply preset distribution
-function applyPreset() {
-    const preset = hourlyPresetSelect.value;
-    if (preset !== 'custom' && presets[preset]) {
-        const values = presets[preset];
-        const sum = values.reduce((acc, v) => acc + v, 0);
-        const normalized = values.map(v => v / sum);
-        hourlyDistInput.value = formatDistribution(normalized, 8);
-        updateDistributionSum();
-    }
-}
-
-// Update distribution sum display
-function updateDistributionSum() {
-    const values = parseDistribution();
-    if (values) {
-        const sum = values.reduce((a, b) => a + b, 0);
-        distSum.textContent = `Sum: ${sum.toFixed(8)}`;
-
-        // Change color based on validity
-        if (Math.abs(sum - 1.0) < 0.001) {
-            distSum.style.color = '#0a7;';
-        } else if (sum === 0) {
-            distSum.style.color = '#666';
-        } else {
-            distSum.style.color = '#a70;';
-        }
-    }
-}
-
-// Parse distribution input
-function parseDistribution() {
-    const text = hourlyDistInput.value.trim();
-    if (!text) return null;
-
-    try {
-        const entries = JSON.parse(text);
-        if (!Array.isArray(entries)) {
-            showError('Distribution must be a JSON array of 24 numbers');
-            return null;
-        }
-
-        if (entries.length !== 24) {
-            showError(`Distribution must have exactly 24 values, got ${entries.length}`);
-            return null;
-        }
-
-        if (entries.some(v => typeof v !== 'number' || Number.isNaN(v) || v < 0 || v > 1)) {
-            showError('All values must be numbers between 0 and 1');
-            return null;
-        }
-
-        return entries;
-    } catch (e) {
-        showError('Invalid JSON distribution format: ' + e.message);
-        return null;
-    }
-}
-
-// Normalize distribution to sum to 1.0
-function normalizeDistribution() {
-    const values = parseDistribution();
-    if (!values) return;
-
+function normalizeToSum(values, targetSum) {
     const sum = values.reduce((a, b) => a + b, 0);
-    if (sum === 0) {
-        showError('Cannot normalize: sum is 0');
+    if (sum <= 0) {
+        return values.map(() => targetSum / values.length);
+    }
+    return values.map(v => (v / sum) * targetSum);
+}
+
+function parseTotalSessions() {
+    const value = parseInt(totalSessionsInput.value, 10);
+    return Number.isNaN(value) ? 0 : value;
+}
+
+function getActiveValues() {
+    return state.dayValues[state.activeDay];
+}
+
+function updateActiveValues(mutator) {
+    const current = getActiveValues();
+    const nextValues = typeof mutator === 'function' ? mutator(current.slice()) : mutator.slice();
+
+    if (state.linked) {
+        DAYS.forEach(day => {
+            state.dayValues[day] = nextValues.slice();
+        });
+    } else {
+        state.dayValues[state.activeDay] = nextValues;
+    }
+}
+
+function setHourValue(hour, rawValue) {
+    const parsed = parseFloat(rawValue);
+    const safeValue = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
+    updateActiveValues(prev => {
+        const next = prev.slice();
+        next[hour] = state.mode === 'sessions' ? Math.round(safeValue) : safeValue;
+        return next;
+    });
+    renderDistributionEditor();
+}
+
+function getDisplayValues(values) {
+    if (state.mode === 'proportion') {
+        return values;
+    }
+    return values;
+}
+
+function getScaleMax(values, ghostValues) {
+    const maxMain = Math.max(...values, 0);
+    const maxGhost = ghostValues ? Math.max(...ghostValues, 0) : 0;
+    const base = Math.max(maxMain, maxGhost, 0);
+    return state.mode === 'proportion' ? Math.max(base, 20) : Math.max(base, 5);
+}
+
+function renderDayTabs() {
+    dayTabs.innerHTML = '';
+    DAYS.forEach(day => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `day-tab ${state.activeDay === day ? 'active' : ''}`;
+        button.textContent = day;
+        button.addEventListener('click', () => {
+            state.activeDay = day;
+            if (state.ghostDay === day) {
+                state.ghostDay = null;
+            }
+            renderDistributionEditor();
+        });
+        dayTabs.appendChild(button);
+    });
+}
+
+function renderCopyControls() {
+    copyFromDay.innerHTML = '<option value="">choose day...</option>';
+    DAYS.filter(day => day !== state.activeDay).forEach(day => {
+        const option = document.createElement('option');
+        option.value = day;
+        option.textContent = day;
+        copyFromDay.appendChild(option);
+    });
+
+    if (state.ghostDay && state.ghostDay === state.activeDay) {
+        state.ghostDay = null;
+    }
+
+    compareDay.innerHTML = '';
+    DAYS.filter(day => day !== state.activeDay).forEach(day => {
+        const option = document.createElement('option');
+        option.value = day;
+        option.textContent = day;
+        compareDay.appendChild(option);
+    });
+
+    if (!state.ghostDay) {
+        compareDay.classList.add('hidden');
+        compareToggle.textContent = 'Compare';
+    } else {
+        compareDay.classList.remove('hidden');
+        compareToggle.textContent = `Comparing: ${state.ghostDay}`;
+        compareDay.value = state.ghostDay;
+    }
+
+    copyFromDay.disabled = state.linked;
+    compareToggle.disabled = state.linked;
+    compareDay.disabled = state.linked;
+
+    linkedToggle.textContent = state.linked ? 'Same every day' : 'Customized by day';
+    linkedToggle.classList.toggle('active', state.linked);
+}
+
+function renderBars() {
+    const activeValues = getDisplayValues(getActiveValues());
+    const ghostValues = state.ghostDay ? getDisplayValues(state.dayValues[state.ghostDay]) : null;
+    const scaleMax = getScaleMax(activeValues, ghostValues);
+
+    barsTrack.innerHTML = '';
+
+    HOURS.forEach(hour => {
+        const value = activeValues[hour];
+        const barPct = scaleMax > 0 ? Math.min(100, (value / scaleMax) * 100) : 0;
+        const ghostValue = ghostValues ? ghostValues[hour] : null;
+        const ghostPct = ghostValue !== null && scaleMax > 0 ? Math.min(100, (ghostValue / scaleMax) * 100) : 0;
+
+        const col = document.createElement('div');
+        col.className = 'bar-col';
+        col.dataset.hour = String(hour);
+
+        if (ghostValue !== null) {
+            const ghost = document.createElement('div');
+            ghost.className = 'bar-ghost';
+            ghost.style.height = `${ghostPct}%`;
+            col.appendChild(ghost);
+        }
+
+        const bar = document.createElement('div');
+        const maxValue = Math.max(...activeValues);
+        bar.className = `bar-fill ${value > 0 && value === maxValue ? 'peak' : ''}`;
+        bar.style.height = `${barPct}%`;
+        bar.title = `${hourLabel(hour)}: ${state.mode === 'proportion' ? value.toFixed(1) + '%' : Math.round(value)}`;
+        col.appendChild(bar);
+
+        col.addEventListener('mousedown', event => {
+            state.draggingHour = hour;
+            updateBarFromPointer(event.clientY);
+        });
+
+        barsTrack.appendChild(col);
+    });
+}
+
+function renderHourLabels() {
+    hourLabels.innerHTML = '';
+    HOURS.forEach(hour => {
+        const el = document.createElement('div');
+        el.className = 'hour-label';
+        el.textContent = hour % 3 === 0 ? hourLabel(hour) : '';
+        hourLabels.appendChild(el);
+    });
+}
+
+function renderHourGrid() {
+    const values = getDisplayValues(getActiveValues());
+    hourGrid.innerHTML = '';
+
+    HOURS.forEach(hour => {
+        const wrap = document.createElement('div');
+        wrap.className = 'hour-input-wrap';
+
+        const label = document.createElement('label');
+        label.className = 'hour-input-label';
+        label.textContent = hourLabel(hour);
+
+        const input = document.createElement('input');
+        input.className = 'hour-input';
+        input.type = 'number';
+        input.min = '0';
+        input.step = state.mode === 'proportion' ? '0.1' : '1';
+        input.value = state.mode === 'proportion' ? values[hour].toFixed(1) : String(Math.round(values[hour]));
+        input.addEventListener('change', e => {
+            setHourValue(hour, e.target.value);
+        });
+
+        wrap.appendChild(label);
+        wrap.appendChild(input);
+        hourGrid.appendChild(wrap);
+    });
+}
+
+function renderSummary() {
+    const values = getActiveValues();
+    const total = values.reduce((a, b) => a + b, 0);
+
+    if (state.mode === 'proportion') {
+        distTotalLabel.textContent = 'Total across 24 hours';
+        distSum.textContent = `${total.toFixed(1)}%`;
+        distSum.classList.toggle('error', Math.abs(total - 100) > 0.5);
+    } else {
+        distTotalLabel.textContent = 'Total sessions';
+        distSum.textContent = `${Math.round(total)} sessions`;
+        distSum.classList.remove('error');
+        if (total > 0) {
+            totalSessionsInput.value = String(Math.round(total));
+        }
+    }
+
+    normalizeBtn.classList.toggle('hidden', state.mode !== 'proportion');
+    modeSessionsBtn.classList.toggle('active', state.mode === 'sessions');
+    modeProportionBtn.classList.toggle('active', state.mode === 'proportion');
+}
+
+function renderDistributionEditor() {
+    renderDayTabs();
+    renderCopyControls();
+    renderBars();
+    renderHourLabels();
+    renderHourGrid();
+    renderSummary();
+}
+
+function updateBarFromPointer(clientY) {
+    if (state.draggingHour === null) {
         return;
     }
 
-    const normalized = values.map(v => v / sum);
-    hourlyDistInput.value = formatDistribution(normalized, 8);
-    updateDistributionSum();
-    showSuccess('Distribution normalized to sum to 1.0');
+    const column = barsTrack.querySelector(`[data-hour="${state.draggingHour}"]`);
+    if (!column) {
+        return;
+    }
+
+    const activeValues = getDisplayValues(getActiveValues());
+    const ghostValues = state.ghostDay ? getDisplayValues(state.dayValues[state.ghostDay]) : null;
+    const scaleMax = getScaleMax(activeValues, ghostValues);
+    const rect = column.getBoundingClientRect();
+    const fromBottom = rect.bottom - clientY;
+    const ratio = Math.min(1, Math.max(0, fromBottom / rect.height));
+    const newValue = ratio * scaleMax;
+    setHourValue(state.draggingHour, state.mode === 'proportion' ? newValue.toFixed(1) : Math.round(newValue));
 }
 
-// Load example configuration
+function applyPreset(preset) {
+    if (!PRESETS[preset]) {
+        return;
+    }
+
+    let nextValues = PRESETS[preset].slice();
+    if (state.mode === 'proportion') {
+        nextValues = normalizeToSum(nextValues, 100);
+    }
+
+    updateActiveValues(nextValues);
+    renderDistributionEditor();
+}
+
+function resetDistribution() {
+    const target = state.mode === 'proportion' ? 100 : Math.max(parseTotalSessions(), 100);
+    updateActiveValues(HOURS.map(() => target / 24));
+    renderDistributionEditor();
+}
+
+function normalizeDistribution() {
+    if (state.mode !== 'proportion') {
+        return;
+    }
+    updateActiveValues(values => normalizeToSum(values, 100));
+    renderDistributionEditor();
+    showSuccess('Distribution normalized to 100%');
+}
+
+function exportHourlyEditorPayload() {
+    const days = {};
+    DAYS.forEach(day => {
+        days[day] = state.dayValues[day].map(v => Number(v));
+    });
+    return {
+        mode: state.mode,
+        linked: state.linked,
+        active_day: state.activeDay,
+        days
+    };
+}
+
+function getActiveDayDistributionForApi() {
+    const values = getActiveValues();
+    const sum = values.reduce((a, b) => a + b, 0);
+    if (sum <= 0) {
+        return null;
+    }
+    return values.map(v => v / sum);
+}
+
+function getEffectiveTotalSessions() {
+    if (state.mode === 'sessions') {
+        const sum = getActiveValues().reduce((a, b) => a + b, 0);
+        return Math.round(sum);
+    }
+    return parseTotalSessions();
+}
+
 async function loadExample() {
     try {
         const response = await fetch('/api/example');
-        if (!response.ok) throw new Error('Failed to load example');
+        if (!response.ok) {
+            throw new Error('Failed to load example');
+        }
 
         const data = await response.json();
+        const totalSessions = data.profile.total_sessions;
+        const sessionsValues = data.profile.hourly_dist.map(v => v * totalSessions);
 
-        totalSessionsInput.value = data.profile.total_sessions;
-        hourlyDistInput.value = formatDistribution(data.profile.hourly_dist, 8);
+        state.mode = 'sessions';
+        state.linked = true;
+        state.activeDay = 'Mon';
+        state.ghostDay = null;
+        DAYS.forEach(day => {
+            state.dayValues[day] = sessionsValues.slice();
+        });
+
+        totalSessionsInput.value = String(totalSessions);
         avgServiceTimeInput.value = data.calculator.avg_service_time;
-        utilTargetInput.value = data.calculator.util_target;
         safetyBufferInput.value = data.calculator.safety_buffer;
-        hourlyPresetSelect.value = 'flat';
 
-        updateDistributionSum();
+        renderDistributionEditor();
         clearError();
         showSuccess('Example configuration loaded');
     } catch (error) {
@@ -173,30 +396,21 @@ async function handleCalculate() {
     clearError();
 
     // Validate inputs
-    const totalSessions = parseInt(totalSessionsInput.value);
+    const totalSessions = getEffectiveTotalSessions();
     if (isNaN(totalSessions) || totalSessions < 1) {
         showError('Total sessions must be a positive number');
         return;
     }
 
-    const hourlyDist = parseDistribution();
-    if (!hourlyDist) return;
-
-    const sum = hourlyDist.reduce((a, b) => a + b, 0);
-    if (Math.abs(sum - 1.0) > 0.001) {
-        showError(`Distribution must sum to 1.0 (current sum: ${sum.toFixed(8)}). Click "Normalize" to fix.`);
+    const hourlyDist = getActiveDayDistributionForApi();
+    if (!hourlyDist) {
+        showError('Distribution cannot be all zeros');
         return;
     }
 
     const avgServiceTime = parseFloat(avgServiceTimeInput.value);
     if (isNaN(avgServiceTime) || avgServiceTime <= 0) {
         showError('Average service time must be a positive number');
-        return;
-    }
-
-    const utilTarget = parseFloat(utilTargetInput.value);
-    if (isNaN(utilTarget) || utilTarget < 0 || utilTarget > 1) {
-        showError('Utilisation target must be between 0 and 1');
         return;
     }
 
@@ -210,11 +424,11 @@ async function handleCalculate() {
     const requestData = {
         profile: {
             total_sessions: totalSessions,
-            hourly_dist: hourlyDist
+            hourly_dist: hourlyDist,
+            hourly_editor: exportHourlyEditorPayload()
         },
         calculator: {
             avg_service_time: avgServiceTime,
-            util_target: utilTarget,
             safety_buffer: safetyBuffer
         }
     };
@@ -234,7 +448,7 @@ async function handleCalculate() {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || 'Calculation failed');
+            throw new Error(error.detail || error.error || 'Calculation failed');
         }
 
         const result = await response.json();
@@ -246,6 +460,100 @@ async function handleCalculate() {
         calculateBtn.textContent = 'Calculate';
     }
 }
+
+function initDistributionEditor() {
+    modeSessionsBtn.addEventListener('click', () => {
+        if (state.mode === 'sessions') {
+            return;
+        }
+        const target = Math.max(parseTotalSessions(), 1);
+        DAYS.forEach(day => {
+            state.dayValues[day] = normalizeToSum(state.dayValues[day], target);
+        });
+        state.mode = 'sessions';
+        renderDistributionEditor();
+    });
+
+    modeProportionBtn.addEventListener('click', () => {
+        if (state.mode === 'proportion') {
+            return;
+        }
+        DAYS.forEach(day => {
+            state.dayValues[day] = normalizeToSum(state.dayValues[day], 100);
+        });
+        state.mode = 'proportion';
+        renderDistributionEditor();
+    });
+
+    linkedToggle.addEventListener('click', () => {
+        if (!state.linked) {
+            const snapshot = state.dayValues[state.activeDay].slice();
+            DAYS.forEach(day => {
+                state.dayValues[day] = snapshot.slice();
+            });
+        }
+        state.linked = !state.linked;
+        if (state.linked) {
+            state.ghostDay = null;
+        }
+        renderDistributionEditor();
+    });
+
+    copyFromDay.addEventListener('change', event => {
+        const source = event.target.value;
+        if (!source || source === state.activeDay) {
+            return;
+        }
+        state.dayValues[state.activeDay] = state.dayValues[source].slice();
+        copyFromDay.value = '';
+        renderDistributionEditor();
+    });
+
+    compareToggle.addEventListener('click', () => {
+        if (state.linked) {
+            return;
+        }
+        if (state.ghostDay) {
+            state.ghostDay = null;
+        } else {
+            state.ghostDay = DAYS.find(day => day !== state.activeDay) || null;
+        }
+        renderDistributionEditor();
+    });
+
+    compareDay.addEventListener('change', event => {
+        state.ghostDay = event.target.value || null;
+        renderDistributionEditor();
+    });
+
+    presetButtons.forEach(button => {
+        button.addEventListener('click', () => applyPreset(button.dataset.preset));
+    });
+
+    resetDistributionBtn.addEventListener('click', resetDistribution);
+    normalizeBtn.addEventListener('click', normalizeDistribution);
+
+    document.addEventListener('mousemove', event => {
+        if (state.draggingHour === null) {
+            return;
+        }
+        updateBarFromPointer(event.clientY);
+    });
+
+    document.addEventListener('mouseup', () => {
+        state.draggingHour = null;
+    });
+
+    renderDistributionEditor();
+}
+
+// Event listeners
+calculateBtn.addEventListener('click', handleCalculate);
+loadExampleBtn.addEventListener('click', loadExample);
+
+document.addEventListener('DOMContentLoaded', () => {
+    initDistributionEditor();
+});
 
 // Display results
 function displayResults(result) {

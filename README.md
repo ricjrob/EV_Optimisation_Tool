@@ -1,100 +1,120 @@
-# ⚡ EV Charging Demand Model (MVP)
+# EV Charging Demand Model (MVP)
 
-A lightweight prototype for estimating **how many EV charging bays are required** at a given site based on expected visits and average dwell time. This is the first step toward a full demand‑prediction platform for EV charging infrastructure across the UK.
+Lightweight EV charging bay sizing model with a FastAPI backend and static frontend.
 
----
+## Documentation
 
-## 🎯 Purpose
+- README.md: project overview and architecture
+- WEB_FRONTEND_README.md: frontend usage and detailed API contract
 
-This MVP answers one simple question:
+## Purpose
 
-> **Given the number of expected EV visits per day and the average charging duration, how many bays are required to avoid congestion and over investment?**
+This MVP estimates how many charging bays are required from:
 
-The goal is to provide a transparent, easy‑to‑extend baseline that future versions can build on as richer datasets (sessions, occupancy, weather, land use, mobility, charging hardware types, charging speeds and battery efficiency etc.) are added.
+- Expected charging sessions per day
+- Hourly demand shape
+- Average service time
+- Safety buffer
 
----
+It is intended as a transparent baseline that can be extended with richer forecasting inputs later.
 
-## 🧠 How It Works
+## Current Capabilities
 
-The model uses a basic utilisation formula:
+- FastAPI API for running bay calculations
+- Static browser UI served by the backend
+- Interactive hourly distribution editor with sessions and proportion modes
+- Day tabs (Mon-Sun), linked or customized-by-day behavior
+- Copy-day and compare-day tools
+- Presets (9-to-5, Retail, Overnight)
+- Drag-to-edit bars plus numeric hour-by-hour inputs
 
-- **Visits per day**
-- **Average dwell time (minutes)**
-- **Operating hours per day** (default: 24)
-- **Expected spread of charging sessions throughout the day
-- **Seasonal trend 
+## Repository Structure
 
-From this, it estimates:
+Important files and folders:
 
-- **Total charging hours required per day**
-- **Maximum throughput per bay**
-- **Minimum number of bays needed**
+- app.py: API entrypoint, request models, static serving
+- src/apiModel.py: glue layer between profile and calculator
+- src/DayProfile.py: distribution validation and presets
+- src/BayCalculator.py: bay calculations and utilisation logic
+- src/BayResult.py: result container and summary helpers
+- static/index.html: frontend structure
+- static/script.js: frontend state, validation, API calls
+- static/style.css: frontend styling
+- WEB_FRONTEND_README.md: frontend and API contract details
 
-This gives a first‑pass sizing estimate for planners, analysts, and early‑stage site assessments.
+## Quick Start
 
----
-```
-## 📦 Project Structure
-/README.md          # You're reading it
-/pyproject.toml     # or requirements.txt + setup.cfg
-/data               # Example input data (optional)
-/notebooks          # Exploratory calculations and validation
-/src
-    __init.py__     
-    /data           # Curated data sets
-    model.py        # Core bay calculation logic
-    utils.py        # Helpers for time, config, etc.
-/app.py             # API entry point for serving predictions
-/main.py            # CLI entry point for running the model
-```
+1. Install dependencies
 
-
----
-
-## 🚀 Getting Started
-
-### 1. Install dependencies
-
+```bash
 pip install -r requirements.txt
-
-
-### 2. Run a simple example
-
-```python
-from src.model import estimate_bays
-
-bays = estimate_bays(
-    visits_per_day=120,
-    avg_dwell_minutes=35,
-    operating_hours=24,
-)
-
-print(bays)
 ```
 
-## 📘 Example Output
-```python
-Estimated bays required: 4
+2. Run the app
+
+```bash
+python app.py
 ```
 
-## 🛣️ Roadmap
-This MVP is the foundation for a much richer EV demand prediction system. Planned enhancements include:
+Alternative dev server:
 
-• Integration of open session data (TfL, NCR, council FOIs)
-• Temporal demand modelling (hourly patterns)
-• Weather, land‑use, and mobility features
-• Machine learning forecasting models (GBM, TFT)
-• Live occupancy validation
-• Site‑level embeddings for generalisation
+```bash
+uvicorn app:app --reload
+```
 
----
+3. Open in browser
 
-## 🤝 Contributing
-This is an early‑stage prototype. Contributions, ideas, and data sources are welcome.
+http://localhost:8000
 
----
+## API Overview
 
-## 📄 License
-No license to retain IP on this personal project 
+### POST /api/calculate
+
+Calculates hourly and peak bay demand.
+
+Accepted profile formats:
+
+- Legacy: profile.hourly_dist as 24-value distribution
+- New: profile.hourly_editor with day-based editor data
+
+Returns:
+
+- results: 24 hourly rows with sessions, utilisation, bays_needed
+- peak_bays
+- peak_hour
+- summary object
+
+### GET /api/presets
+
+Returns built-in profile presets, including:
+
+- flat
+- morning_peak
+- commuter_double_peak
+- office (sessions and proportion)
+- retail (sessions and proportion)
+- overnight (sessions and proportion)
+
+### GET /api/example
+
+Returns an example profile and calculator payload.
+
+For complete request and response examples, see WEB_FRONTEND_README.md.
+
+## Notes
+
+- Hourly arrays must contain exactly 24 non-negative values.
+- Any input hourly values are normalized before calculation.
+- In sessions editor mode, total sessions are inferred from the selected active day.
+
+## Next Steps
+
+- Add automated tests for API request variants
+- Add scenario save/compare in UI
+- Add CSV export for hourly results
+
+## Contributing
+
+Contributions and suggestions are welcome.
 
 

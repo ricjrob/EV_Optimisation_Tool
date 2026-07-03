@@ -1,136 +1,174 @@
-# 🌐 Web Frontend Setup Guide
+# Web Frontend Setup Guide
 
-This folder contains the FastAPI web application and frontend interface for testing the EV Charging Bay Calculator.
+This project includes a FastAPI backend plus a static web UI for configuring demand patterns and calculating required EV charging bays.
 
-## 📁 Files Created
+For the high-level project overview and architecture notes, see README.md.
 
-- **`app.py`** - FastAPI backend server with REST API endpoints
-- **`static/index.html`** - Web interface (HTML)
-- **`static/style.css`** - Styling for the web interface
-- **`static/script.js`** - Frontend logic and API communication
+## Files
 
-## 🚀 Quick Start
+- app.py: FastAPI backend server and API routes
+- static/index.html: frontend markup
+- static/style.css: frontend styles
+- static/script.js: editor logic, validation, and API calls
 
-### 1. Make sure dependencies are installed
+## Quick Start
+
+1. Install dependencies.
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Run the web server
+2. Start the app.
+
 ```bash
 python app.py
 ```
 
-Or alternatively:
+Or:
+
 ```bash
 uvicorn app:app --reload
 ```
 
-### 3. Open in browser
-Navigate to: **http://localhost:8000**
+3. Open http://localhost:8000
 
-## 📝 Features
+## Frontend Features
 
-The web interface provides:
+The hourly distribution editor now supports:
 
-- **Interactive Configuration Panel**
-  - Total daily sessions input
-  - Hourly distribution presets (even, peak morning/afternoon, night-friendly)
-  - Manual hourly distribution editing with validation
-  - Average service time settings
-  - Utilisation target and safety buffer parameters
+- Sessions and Proportion (%) modes
+- Day tabs (Mon-Sun)
+- Linked profile mode (same curve every day)
+- Unlinked mode (customized by day)
+- Copy day to day
+- Compare overlay between days
+- Presets: 9-to-5, Retail, Overnight
+- Drag bars and numeric hour-by-hour editing
+- Normalize to 100% in proportion mode
 
-- **Results Dashboard**
-  - Maximum bays needed (summary)
-  - Hourly breakdown table with detailed metrics
-  - Visual bar chart showing bays required per hour
+Calculator controls remain:
 
-- **Preset Distributions**
-  - **Even**: Uniform distribution across all hours
-  - **Peak Morning/Evening**: Higher demand morning and evening
-  - **Peak Afternoon**: Higher demand during afternoon hours
-  - **Night-Friendly**: Encourages off-peak charging
-  - **Custom**: Manual entry of 24 hourly values
+- Total daily sessions
+- Average service time (minutes)
+- Safety buffer
 
-## 🔌 API Endpoints
+## API Overview
 
-### `POST /api/calculate`
-Calculate required bays based on configuration.
+### POST /api/calculate
 
-**Request:**
+Calculates bay demand from profile + calculator config.
+
+The endpoint accepts either legacy hourly_dist or the new hourly_editor payload.
+
+Legacy request format:
+
 ```json
 {
   "profile": {
     "total_sessions": 100,
-    "hourly_dist": [0.042, 0.042, ..., 0.042]  // 24 values
+    "hourly_dist": [0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.08]
   },
   "calculator": {
     "avg_service_time": 35.0,
-    "util_target": 0.8,
     "safety_buffer": 0.15
   }
 }
 ```
 
-**Response:**
+New editor-aware request format:
+
+```json
+{
+  "profile": {
+    "total_sessions": 100,
+    "hourly_editor": {
+      "mode": "sessions",
+      "linked": false,
+      "active_day": "Mon",
+      "days": {
+        "Mon": [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
+        "Tue": [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
+        "Wed": [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
+        "Thu": [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
+        "Fri": [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
+        "Sat": [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
+        "Sun": [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0]
+      }
+    }
+  },
+  "calculator": {
+    "avg_service_time": 35.0,
+    "safety_buffer": 0.15
+  }
+}
+```
+
+Notes:
+
+- When mode is sessions, total_sessions is inferred from the selected active_day values.
+- When mode is proportion, total_sessions comes from profile.total_sessions.
+- All hourly arrays must contain 24 non-negative values.
+
+Successful response format:
+
 ```json
 {
   "results": [
     {
       "hour": 0,
       "sessions": 4,
-      "total_time": 2.33,
-      "throughput": 1.71,
+      "utilisation": 0.63,
       "bays_needed": 2
-    },
-    ...
+    }
   ],
-  "max_bays_needed": 5
+  "peak_bays": 5,
+  "peak_hour": 8,
+  "summary": {
+    "peak_bays": 5,
+    "peak_hour": 8,
+    "avg_utilisation": 0.44,
+    "max_utilisation": 0.78
+  }
 }
 ```
 
-### `GET /api/example`
-Get example configuration for testing.
+Error response format (FastAPI):
 
-## 🧪 Testing Tips
+```json
+{
+  "detail": "Hourly distribution must have 24 values"
+}
+```
 
-1. **Load Example**: Click "Load Example" to populate with default test data
-2. **Normalize**: If your distribution doesn't sum to 1.0, click "Normalize" to auto-fix
-3. **Presets**: Try different hourly distribution presets to see how demand patterns affect bay requirements
-4. **Parameters**: Experiment with:
-   - Different utilisation targets (0.7 = relaxed, 0.9 = tight)
-   - Safety buffer (higher = more conservative estimate)
-   - Service times (longer = more bays needed)
+### GET /api/presets
 
-## 📊 Understanding Results
+Returns preset distributions.
 
-- **Sessions**: Number of charging sessions in that hour
-- **Total Time**: Total hours of charging needed (sessions × avg_service_time ÷ 60)
-- **Throughput**: How many sessions one bay can handle in that hour
-- **Bays Needed**: Minimum bays to handle demand at target utilisation
+- Existing proportional presets: flat, morning_peak, commuter_double_peak
+- New editor presets: office, retail, overnight (each includes sessions and proportion)
 
-## 🛑 Troubleshooting
+### GET /api/example
 
-**Port 8000 already in use?**
+Returns an example legacy profile and calculator payload that the UI can load.
+
+## Troubleshooting
+
+Port 8000 already in use:
+
 ```bash
 uvicorn app:app --port 8001
 ```
 
-**Module import errors?**
-Make sure you're running from the project root directory:
+Module import issues:
+
 ```bash
-cd /Users/richardroberts/Documents/Projects/EV_Optimisation_Tool
+cd <repo-root>
 python app.py
 ```
 
-**Distribution validation error?**
-- All 24 values must be between 0 and 1
-- Values should sum to approximately 1.0 (use "Normalize" button)
+Validation failures:
 
-## 📚 Next Steps
-
-- Enhance visualizations with charts (see ChartJS integration possibility)
-- Add scenario comparison features
-- Export results to CSV
-- Add historical data visualization
-- Implement sensitivity analysis
+- Hourly arrays must be length 24
+- Hourly values must be non-negative
+- Distribution must not be all zeros
