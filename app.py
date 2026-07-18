@@ -131,6 +131,68 @@ def _resolve_profile_distribution(profile: ProfileConfig) -> tuple[int, list[flo
     return total_sessions, hourly_dist
 
 
+def _resolve_profile_distributions(
+    profile: ProfileConfig,
+) -> tuple[str, dict[str, tuple[int, list[float]]], list[str]]:
+    if profile.hourly_editor is not None:
+        editor = profile.hourly_editor
+        active_day = editor.active_day
+
+        if active_day not in EDITOR_DAYS:
+            raise HTTPException(
+                status_code=400, detail="Invalid active_day in hourly editor"
+            )
+        if active_day not in editor.days:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing day values for active_day '{active_day}'",
+            )
+
+        mode = editor.mode.lower()
+        if mode not in {"sessions", "proportion"}:
+            raise HTTPException(
+                status_code=400,
+                detail="hourly_editor.mode must be either 'sessions' or 'proportion'",
+            )
+
+        resolved_days: dict[str, tuple[int, list[float]]] = {}
+        day_order = [
+            day
+            for day in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            if day in editor.days
+        ]
+
+        for day, values in editor.days.items():
+            if day not in EDITOR_DAYS:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid day key '{day}' in hourly editor"
+                )
+
+            _validate_hour_values(values)
+            hourly_dist = _normalize(values)
+
+            if mode == "sessions":
+                total_sessions = int(round(sum(values)))
+                if total_sessions <= 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Total sessions inferred from '{day}' must be positive",
+                    )
+            else:
+                total_sessions = profile.total_sessions
+                if total_sessions < 1:
+                    raise HTTPException(
+                        status_code=400, detail="Total sessions must be positive"
+                    )
+
+            resolved_days[day] = (total_sessions, hourly_dist)
+
+        return active_day, resolved_days, day_order
+
+    total_sessions, hourly_dist = _resolve_profile_distribution(profile)
+    return "Mon", {"Mon": (total_sessions, hourly_dist)}, ["Mon"]
+
+
 # not used in app
 @app.get("/")
 async def serve_root():
@@ -143,34 +205,58 @@ async def serve_root():
 async def calculate(request: CalculationRequest):
     """Calculate required bays based on profile and calculator settings"""
     try:
-        total_sessions, hourly_dist = _resolve_profile_distribution(request.profile)
-
-        # Set up the model
-        model.set_profile(total_sessions, hourly_dist)
-        model.profile.set_total_sessions(total_sessions)
-        model.set_calculator(
-            request.calculator.avg_service_time,
-            request.calculator.safety_buffer,
+        active_day, day_inputs, day_order = _resolve_profile_distributions(
+            request.profile
         )
 
-        # Run calculation
-        result = model.run()
+        day_results = {}
+        overall_peak_bays = -1
+        peak_day = active_day
 
-        # Convert result to dictionary format
-        # BayResult has: bays_per_hour, peak_bays, peak_hour, util_by_hour
+        for day in day_order:
+            total_sessions, hourly_dist = day_inputs[day]
+
+            model.set_profile(total_sessions, hourly_dist)
+            model.profile.set_total_sessions(total_sessions)
+            model.set_calculator(
+                request.calculator.avg_service_time,
+                request.calculator.safety_buffer,
+            )
+
+            result = model.run()
+            payload = {
+                "results": [
+                    {
+                        "hour": hour,
+                        "bays_needed": result.bays_per_hour[hour],
+                        "utilisation": result.util_by_hour[hour],
+                        "sessions": int(hourly_dist[hour] * total_sessions),
+                    }
+                    for hour in range(24)
+                ],
+                "peak_bays": result.peak_bays,
+                "peak_hour": result.peak_hour,
+                "summary": result.get_summary(),
+                "total_sessions": total_sessions,
+            }
+            day_results[day] = payload
+
+            if payload["peak_bays"] > overall_peak_bays:
+                overall_peak_bays = payload["peak_bays"]
+                peak_day = day
+
+        selected_result = day_results[active_day]
+
         response_data = {
-            "results": [
-                {
-                    "hour": hour,
-                    "bays_needed": result.bays_per_hour[hour],
-                    "utilisation": result.util_by_hour[hour],
-                    "sessions": int(hourly_dist[hour] * total_sessions),
-                }
-                for hour in range(24)
-            ],
-            "peak_bays": result.peak_bays,
-            "peak_hour": result.peak_hour,
-            "summary": result.get_summary(),
+            "results": selected_result["results"],
+            "peak_bays": selected_result["peak_bays"],
+            "peak_hour": selected_result["peak_hour"],
+            "summary": selected_result["summary"],
+            "active_day": active_day,
+            "day_order": day_order,
+            "day_results": day_results,
+            "overall_peak_bays": overall_peak_bays,
+            "peak_day": peak_day,
         }
 
         return response_data

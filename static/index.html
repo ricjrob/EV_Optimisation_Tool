@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EV Charging Bay Calculator</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 
 <body>
@@ -24,10 +24,10 @@
                     <div class="form-section">
                         <h3>Charging Profile</h3>
 
-                        <div class="form-group">
+                        <div id="total-sessions-group" class="form-group hidden">
                             <label for="total-sessions">Total Daily Sessions:</label>
                             <input type="number" id="total-sessions" min="1" value="100" placeholder="e.g., 100">
-                            <small>Expected number of charging sessions per day</small>
+                            <small>Used in Proportion mode to convert hourly percentages into sessions</small>
                         </div>
                     </div>
 
@@ -111,14 +111,24 @@
                     <h2>Results</h2>
 
                     <div id="results-summary" class="results-summary hidden">
-                        <div class="summary-box">
-                            <h3>Maximum Bays Needed</h3>
-                            <div class="summary-value" id="max-bays">-</div>
+                        <div class="results-summary-grid">
+                            <div class="summary-box">
+                                <h3>Highest Daily Max Bays</h3>
+                                <div class="summary-value" id="max-bays">-</div>
+                            </div>
+                            <div class="summary-box summary-box-muted">
+                                <h3>Peak Day</h3>
+                                <div class="summary-value summary-value-day" id="peak-day">-</div>
+                            </div>
+                        </div>
+                        <div class="results-day-picker-wrap">
+                            <p class="results-day-picker-label">Select a day to inspect the hourly profile</p>
+                            <div id="results-day-picker" class="results-day-picker"></div>
                         </div>
                     </div>
 
                     <div id="results-table" class="results-table hidden">
-                        <h3>Hourly Breakdown</h3>
+                        <h3 id="results-table-title">Hourly Breakdown</h3>
                         <div class="table-wrapper">
                             <table>
                                 <thead>
@@ -137,7 +147,7 @@
                     </div>
 
                     <div id="results-chart" class="results-chart hidden">
-                        <h3>Bays Required by Hour</h3>
+                        <h3 id="results-chart-title">Bays Required by Hour</h3>
                         <canvas id="chart-canvas"></canvas>
                     </div>
 
@@ -153,7 +163,7 @@
         </footer>
     </div>
 
-    <script src="/static/script.js?v=2"></script>
+    <script src="/static/script.js?v=6"></script>
 </body>
 
 </html>

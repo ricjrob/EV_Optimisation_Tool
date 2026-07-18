@@ -42,15 +42,9 @@ main {
 
 .content-wrapper {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 30px;
     animation: fadeIn 0.8s ease-out;
-}
-
-@media (max-width: 1200px) {
-    .content-wrapper {
-        grid-template-columns: 1fr;
-    }
 }
 
 /* Panels */
@@ -383,6 +377,24 @@ main {
     background: #fff;
 }
 
+.hour-input-row {
+    position: relative;
+}
+
+.hour-input-row .hour-input {
+    padding-right: 18px;
+}
+
+.hour-input-suffix {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #78716c;
+    font-size: 0.85em;
+    pointer-events: none;
+}
+
 .distribution-footer {
     display: flex;
     justify-content: space-between;
@@ -480,12 +492,22 @@ main {
     display: none;
 }
 
+.results-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
 .summary-box {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     padding: 25px;
     border-radius: 8px;
     text-align: center;
+}
+
+.summary-box-muted {
+    background: linear-gradient(135deg, #1f2937 0%, #334155 100%);
 }
 
 .summary-box h3 {
@@ -499,6 +521,63 @@ main {
 .summary-value {
     font-size: 3em;
     font-weight: 700;
+}
+
+.summary-value-day {
+    font-size: 2.2em;
+}
+
+.results-day-picker-wrap {
+    margin-top: 16px;
+}
+
+.results-day-picker-label {
+    margin-bottom: 10px;
+    color: #4b5563;
+    font-size: 0.92em;
+    font-weight: 600;
+}
+
+.results-day-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 10px;
+}
+
+.results-day-chip {
+    border: 1px solid #d7dce5;
+    background: #fff;
+    color: #1f2937;
+    border-radius: 12px;
+    padding: 10px 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.results-day-chip:hover {
+    border-color: #667eea;
+    box-shadow: 0 8px 18px rgba(102, 126, 234, 0.12);
+    transform: translateY(-1px);
+}
+
+.results-day-chip.active {
+    border-color: #667eea;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.12), rgba(118, 75, 162, 0.14));
+    box-shadow: 0 10px 22px rgba(102, 126, 234, 0.16);
+}
+
+.results-day-chip-label {
+    display: block;
+    font-weight: 700;
+    font-size: 0.95em;
+    margin-bottom: 4px;
+}
+
+.results-day-chip-value {
+    display: block;
+    color: #667085;
+    font-size: 0.88em;
 }
 
 /* Results Table */
@@ -570,6 +649,9 @@ tbody tr:last-child td {
 }
 
 #chart-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
     max-height: 400px;
 }
 
@@ -604,6 +686,25 @@ footer {
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+@media (max-width: 700px) {
+    .results-summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .summary-box {
+        padding: 18px;
+    }
+
+    .summary-value {
+        font-size: 2.4em;
+    }
+
+    .summary-value-day {
+        font-size: 2em;
     }
 }
 

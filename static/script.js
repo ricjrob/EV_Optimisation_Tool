@@ -1,4 +1,5 @@
 // DOM elements
+const totalSessionsGroup = document.getElementById('total-sessions-group');
 const totalSessionsInput = document.getElementById('total-sessions');
 const avgServiceTimeInput = document.getElementById('avg-service-time');
 const safetyBufferInput = document.getElementById('safety-buffer');
@@ -27,6 +28,10 @@ const resultsTable = document.getElementById('results-table');
 const resultsChart = document.getElementById('results-chart');
 const noResults = document.getElementById('no-results');
 const maxBaysDisplay = document.getElementById('max-bays');
+const peakDayDisplay = document.getElementById('peak-day');
+const resultsDayPicker = document.getElementById('results-day-picker');
+const resultsTableTitle = document.getElementById('results-table-title');
+const resultsChartTitle = document.getElementById('results-chart-title');
 const resultsTbody = document.getElementById('results-tbody');
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -44,7 +49,10 @@ const state = {
     activeDay: 'Mon',
     ghostDay: null,
     draggingHour: null,
-    dayValues: initDayValues()
+    totalSessions: 100,
+    dayValues: initDayValues(),
+    resultSet: null,
+    selectedResultDay: 'Mon'
 };
 
 function initDayValues() {
@@ -69,9 +77,12 @@ function normalizeToSum(values, targetSum) {
     return values.map(v => (v / sum) * targetSum);
 }
 
-function parseTotalSessions() {
+function parseTotalSessionsInput() {
     const value = parseInt(totalSessionsInput.value, 10);
-    return Number.isNaN(value) ? 0 : value;
+    if (Number.isNaN(value)) {
+        return 0;
+    }
+    return Math.max(0, value);
 }
 
 function getActiveValues() {
@@ -238,14 +249,27 @@ function renderHourGrid() {
         input.className = 'hour-input';
         input.type = 'number';
         input.min = '0';
-        input.step = state.mode === 'proportion' ? '0.1' : '1';
+        input.max = state.mode === 'proportion' ? '100' : '';
+        input.step = '1';
         input.value = state.mode === 'proportion' ? values[hour].toFixed(1) : String(Math.round(values[hour]));
+        input.setAttribute('aria-label', state.mode === 'proportion' ? `${hourLabel(hour)} percentage` : `${hourLabel(hour)} sessions`);
         input.addEventListener('change', e => {
             setHourValue(hour, e.target.value);
         });
 
+        const inputRow = document.createElement('div');
+        inputRow.className = 'hour-input-row';
+        inputRow.appendChild(input);
+
+        if (state.mode === 'proportion') {
+            const suffix = document.createElement('span');
+            suffix.className = 'hour-input-suffix';
+            suffix.textContent = '%';
+            inputRow.appendChild(suffix);
+        }
+
         wrap.appendChild(label);
-        wrap.appendChild(input);
+        wrap.appendChild(inputRow);
         hourGrid.appendChild(wrap);
     });
 }
@@ -255,6 +279,7 @@ function renderSummary() {
     const total = values.reduce((a, b) => a + b, 0);
 
     if (state.mode === 'proportion') {
+        totalSessionsInput.value = String(Math.max(1, Math.round(state.totalSessions)));
         distTotalLabel.textContent = 'Total across 24 hours';
         distSum.textContent = `${total.toFixed(1)}%`;
         distSum.classList.toggle('error', Math.abs(total - 100) > 0.5);
@@ -263,10 +288,11 @@ function renderSummary() {
         distSum.textContent = `${Math.round(total)} sessions`;
         distSum.classList.remove('error');
         if (total > 0) {
-            totalSessionsInput.value = String(Math.round(total));
+            state.totalSessions = Math.round(total);
         }
     }
 
+    totalSessionsGroup.classList.toggle('hidden', state.mode !== 'proportion');
     normalizeBtn.classList.toggle('hidden', state.mode !== 'proportion');
     modeSessionsBtn.classList.toggle('active', state.mode === 'sessions');
     modeProportionBtn.classList.toggle('active', state.mode === 'proportion');
@@ -316,7 +342,7 @@ function applyPreset(preset) {
 }
 
 function resetDistribution() {
-    const target = state.mode === 'proportion' ? 100 : Math.max(parseTotalSessions(), 100);
+    const target = state.mode === 'proportion' ? 100 : Math.max(state.totalSessions, 100);
     updateActiveValues(HOURS.map(() => target / 24));
     renderDistributionEditor();
 }
@@ -355,9 +381,18 @@ function getActiveDayDistributionForApi() {
 function getEffectiveTotalSessions() {
     if (state.mode === 'sessions') {
         const sum = getActiveValues().reduce((a, b) => a + b, 0);
-        return Math.round(sum);
+        const inferred = Math.round(sum);
+        if (inferred > 0) {
+            state.totalSessions = inferred;
+        }
+        return inferred;
     }
-    return parseTotalSessions();
+
+    const enteredTotal = parseTotalSessionsInput();
+    if (enteredTotal > 0) {
+        state.totalSessions = enteredTotal;
+    }
+    return Math.max(1, Math.round(state.totalSessions));
 }
 
 async function loadExample() {
@@ -379,7 +414,7 @@ async function loadExample() {
             state.dayValues[day] = sessionsValues.slice();
         });
 
-        totalSessionsInput.value = String(totalSessions);
+        state.totalSessions = totalSessions;
         avgServiceTimeInput.value = data.calculator.avg_service_time;
         safetyBufferInput.value = data.calculator.safety_buffer;
 
@@ -462,11 +497,21 @@ async function handleCalculate() {
 }
 
 function initDistributionEditor() {
+    totalSessionsInput.addEventListener('change', () => {
+        const entered = parseTotalSessionsInput();
+        if (entered > 0) {
+            state.totalSessions = entered;
+            totalSessionsInput.value = String(entered);
+        } else {
+            totalSessionsInput.value = String(Math.max(1, Math.round(state.totalSessions)));
+        }
+    });
+
     modeSessionsBtn.addEventListener('click', () => {
         if (state.mode === 'sessions') {
             return;
         }
-        const target = Math.max(parseTotalSessions(), 1);
+        const target = Math.max(state.totalSessions, 1);
         DAYS.forEach(day => {
             state.dayValues[day] = normalizeToSum(state.dayValues[day], target);
         });
@@ -557,14 +602,80 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Display results
 function displayResults(result) {
-    // Update summary
-    maxBaysDisplay.textContent = result.peak_bays;
+    const dayOrder = Array.isArray(result.day_order) && result.day_order.length > 0
+        ? result.day_order
+        : [result.active_day || state.activeDay || 'Mon'];
+
+    const dayResults = result.day_results || {
+        [dayOrder[0]]: {
+            results: result.results,
+            peak_bays: result.peak_bays,
+            peak_hour: result.peak_hour,
+            summary: result.summary
+        }
+    };
+
+    state.resultSet = {
+        dayOrder,
+        dayResults,
+        overallPeakBays: result.overall_peak_bays ?? result.peak_bays,
+        peakDay: result.peak_day || dayOrder[0]
+    };
+    state.selectedResultDay = dayResults[result.active_day] ? result.active_day : dayOrder[0];
+
+    maxBaysDisplay.textContent = state.resultSet.overallPeakBays;
+    peakDayDisplay.textContent = state.resultSet.peakDay;
     resultsSummary.classList.remove('hidden');
     noResults.classList.add('hidden');
 
-    // Populate table
+    renderResultsDayPicker();
+    renderSelectedDayResults();
+}
+
+function renderResultsDayPicker() {
+    if (!state.resultSet) {
+        resultsDayPicker.innerHTML = '';
+        return;
+    }
+
+    resultsDayPicker.innerHTML = '';
+    state.resultSet.dayOrder.forEach(day => {
+        const dayResult = state.resultSet.dayResults[day];
+        if (!dayResult) {
+            return;
+        }
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `results-day-chip ${state.selectedResultDay === day ? 'active' : ''}`;
+        button.innerHTML = `
+            <span class="results-day-chip-label">${day}</span>
+            <span class="results-day-chip-value">${dayResult.peak_bays} max bays</span>
+        `;
+        button.addEventListener('click', () => {
+            state.selectedResultDay = day;
+            renderResultsDayPicker();
+            renderSelectedDayResults();
+        });
+        resultsDayPicker.appendChild(button);
+    });
+}
+
+function renderSelectedDayResults() {
+    if (!state.resultSet) {
+        return;
+    }
+
+    const selected = state.resultSet.dayResults[state.selectedResultDay];
+    if (!selected) {
+        return;
+    }
+
+    resultsTableTitle.textContent = `Hourly Breakdown (${state.selectedResultDay})`;
+    resultsChartTitle.textContent = `Bays Required by Hour (${state.selectedResultDay})`;
+
     resultsTbody.innerHTML = '';
-    result.results.forEach(row => {
+    selected.results.forEach(row => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${row.hour}</td>
@@ -576,8 +687,7 @@ function displayResults(result) {
     });
     resultsTable.classList.remove('hidden');
 
-    // Draw chart
-    drawChart(result.results);
+    drawChart(selected.results);
     resultsChart.classList.remove('hidden');
 }
 
@@ -588,16 +698,25 @@ function drawChart(results) {
 
     // Set canvas size
     const rect = canvas.parentElement.getBoundingClientRect();
-    canvas.width = rect.width - 40;
-    canvas.height = 300;
+    canvas.width = Math.max(320, rect.width - 24);
+    canvas.height = 360;
 
     const width = canvas.width;
     const height = canvas.height;
-    const padding = 40;
+    const plot = {
+        top: 28,
+        right: 20,
+        bottom: 72,
+        left: 74
+    };
 
     const maxBays = Math.max(...results.map(r => r.bays_needed));
-    const dataWidth = (width - padding * 2) / 24;
-    const scaleY = (height - padding * 2) / (maxBays * 1.1);
+    const chartMax = Math.max(1, maxBays);
+    const plotWidth = width - plot.left - plot.right;
+    const plotHeight = height - plot.top - plot.bottom;
+    const dataWidth = plotWidth / 24;
+    const scaleY = plotHeight / (chartMax * 1.1);
+    const xTickStep = dataWidth < 22 ? 2 : 1;
 
     // Clear canvas
     ctx.fillStyle = 'white';
@@ -606,11 +725,11 @@ function drawChart(results) {
     // Draw grid lines
     ctx.strokeStyle = '#e0e0e0';
     ctx.lineWidth = 1;
-    for (let i = 0; i <= maxBays; i++) {
-        const y = height - padding - (i * scaleY);
+    for (let i = 0; i <= chartMax; i++) {
+        const y = height - plot.bottom - (i * scaleY);
         ctx.beginPath();
-        ctx.moveTo(padding, y);
-        ctx.lineTo(width - padding, y);
+        ctx.moveTo(plot.left, y);
+        ctx.lineTo(width - plot.right, y);
         ctx.stroke();
 
         // Y-axis labels
@@ -618,18 +737,18 @@ function drawChart(results) {
         ctx.font = '12px sans-serif';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
-        ctx.fillText(i.toString(), padding - 10, y);
+        ctx.fillText(i.toString(), plot.left - 18, y);
     }
 
     // Draw bars
     results.forEach((row, index) => {
-        const x = padding + (index * dataWidth) + (dataWidth * 0.1);
+        const x = plot.left + (index * dataWidth) + (dataWidth * 0.12);
         const barWidth = dataWidth * 0.8;
         const barHeight = row.bays_needed * scaleY;
-        const y = height - padding - barHeight;
+        const y = height - plot.bottom - barHeight;
 
         // Bar gradient
-        const gradient = ctx.createLinearGradient(0, y, 0, height - padding);
+        const gradient = ctx.createLinearGradient(0, y, 0, height - plot.bottom);
         gradient.addColorStop(0, '#667eea');
         gradient.addColorStop(1, '#764ba2');
 
@@ -637,25 +756,27 @@ function drawChart(results) {
         ctx.fillRect(x, y, barWidth, barHeight);
 
         // Hour label
-        ctx.fillStyle = '#333';
-        ctx.font = 'bold 11px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(index.toString(), x + barWidth / 2, height - padding + 10);
+        if (index % xTickStep === 0) {
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(index.toString(), x + barWidth / 2, height - plot.bottom + 10);
+        }
     });
 
     // Draw axes
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(padding, padding);
-    ctx.lineTo(padding, height - padding);
-    ctx.lineTo(width - padding, height - padding);
+    ctx.moveTo(plot.left, plot.top);
+    ctx.lineTo(plot.left, height - plot.bottom);
+    ctx.lineTo(width - plot.right, height - plot.bottom);
     ctx.stroke();
 
     // Y-axis label
     ctx.save();
-    ctx.translate(15, height / 2);
+    ctx.translate(24, height / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.fillStyle = '#333';
     ctx.font = 'bold 12px sans-serif';
@@ -667,7 +788,7 @@ function drawChart(results) {
     ctx.fillStyle = '#333';
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Hour of Day', width / 2, height - 10);
+    ctx.fillText('Hour of Day', width / 2, height - 18);
 }
 
 // Error/Success messages
