@@ -13,10 +13,21 @@ class apiModel:
         self.profile = DayProfile(hourly_dist, total_sessions)
         self.profile.set_total_sessions(total_sessions)
 
-    def set_calculator(self, avg_service_time: float, safety_buffer: float) -> None:
+    def set_calculator(
+        self,
+        avg_service_time: float,
+        safety_buffer: float,
+        charge_curve_id: str | None = None,
+        session_mix: dict[str, float] | None = None,
+    ) -> None:
         self.avg_service_time = avg_service_time
         self.safety_buffer = safety_buffer
-        self.calculator = BayCalculator(avg_service_time, safety_buffer)
+        self.calculator = BayCalculator(
+            avg_service_time,
+            safety_buffer,
+            charge_curve_id=charge_curve_id,
+            session_mix=session_mix,
+        )
 
     def run(self) -> BayResult:
         if not self.profile or not self.calculator:

@@ -2,7 +2,10 @@
 const totalSessionsGroup = document.getElementById('total-sessions-group');
 const totalSessionsInput = document.getElementById('total-sessions');
 const avgServiceTimeInput = document.getElementById('avg-service-time');
-const safetyBufferInput = document.getElementById('safety-buffer');
+const chargeCurveSelect = document.getElementById('charge-curve');
+const sessionMixGroup = document.getElementById('session-mix-group');
+const mixDcFastInput = document.getElementById('mix-dc-fast');
+const mixAcL2Input = document.getElementById('mix-ac-l2');
 const calculateBtn = document.getElementById('calculate-btn');
 const loadExampleBtn = document.getElementById('load-example-btn');
 const normalizeBtn = document.getElementById('normalize-btn');
@@ -36,6 +39,7 @@ const resultsTbody = document.getElementById('results-tbody');
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const LEGACY_SAFETY_BUFFER = 0.15;
 
 const PRESETS = {
     office: [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
@@ -52,7 +56,8 @@ const state = {
     totalSessions: 100,
     dayValues: initDayValues(),
     resultSet: null,
-    selectedResultDay: 'Mon'
+    selectedResultDay: 'Mon',
+    chargeCurveId: 'legacy'
 };
 
 function initDayValues() {
@@ -395,6 +400,67 @@ function getEffectiveTotalSessions() {
     return Math.max(1, Math.round(state.totalSessions));
 }
 
+function parseMixInput(inputEl, fallback) {
+    const value = parseFloat(inputEl.value);
+    if (Number.isNaN(value)) {
+        return fallback;
+    }
+    return Math.min(100, Math.max(0, value));
+}
+
+function readSessionMix() {
+    const dcPct = parseMixInput(mixDcFastInput, 40);
+    const acPct = parseMixInput(mixAcL2Input, 60);
+    const total = dcPct + acPct;
+    if (total <= 0) {
+        return { dc_fast: 0.4, ac_l2: 0.6 };
+    }
+    return {
+        dc_fast: dcPct / total,
+        ac_l2: acPct / total
+    };
+}
+
+function renderCurveControls() {
+    const isMixed = state.chargeCurveId === 'mixed';
+    sessionMixGroup.classList.toggle('hidden', !isMixed);
+}
+
+async function loadChargeCurveCatalog() {
+    try {
+        const response = await fetch('/api/charge-curves');
+        if (!response.ok) {
+            return;
+        }
+
+        const data = await response.json();
+        if (!Array.isArray(data.curves) || data.curves.length === 0) {
+            return;
+        }
+
+        chargeCurveSelect.innerHTML = '';
+        data.curves.forEach(curve => {
+            if (!curve || !curve.id || !curve.label) {
+                return;
+            }
+
+            const option = document.createElement('option');
+            option.value = curve.id;
+            option.textContent = curve.label;
+            chargeCurveSelect.appendChild(option);
+        });
+
+        if (!Array.from(chargeCurveSelect.options).some(opt => opt.value === state.chargeCurveId)) {
+            state.chargeCurveId = 'legacy';
+        }
+        chargeCurveSelect.value = state.chargeCurveId;
+    } catch (_error) {
+        // Keep static fallback options if catalog loading fails.
+    }
+
+    renderCurveControls();
+}
+
 async function loadExample() {
     try {
         const response = await fetch('/api/example');
@@ -416,9 +482,16 @@ async function loadExample() {
 
         state.totalSessions = totalSessions;
         avgServiceTimeInput.value = data.calculator.avg_service_time;
-        safetyBufferInput.value = data.calculator.safety_buffer;
+        state.chargeCurveId = (data.profile && data.profile.charge_curve_id) || 'legacy';
+        const mix = data.profile && data.profile.session_mix;
+        if (mix && typeof mix.dc_fast === 'number' && typeof mix.ac_l2 === 'number') {
+            mixDcFastInput.value = String(Math.round(mix.dc_fast * 100));
+            mixAcL2Input.value = String(Math.round(mix.ac_l2 * 100));
+        }
+        chargeCurveSelect.value = state.chargeCurveId;
 
         renderDistributionEditor();
+        renderCurveControls();
         clearError();
         showSuccess('Example configuration loaded');
     } catch (error) {
@@ -449,22 +522,18 @@ async function handleCalculate() {
         return;
     }
 
-    const safetyBuffer = parseFloat(safetyBufferInput.value);
-    if (isNaN(safetyBuffer) || safetyBuffer < 0 || safetyBuffer > 1) {
-        showError('Safety buffer must be between 0 and 1');
-        return;
-    }
-
     // Prepare request
     const requestData = {
         profile: {
             total_sessions: totalSessions,
             hourly_dist: hourlyDist,
-            hourly_editor: exportHourlyEditorPayload()
+            hourly_editor: exportHourlyEditorPayload(),
+            charge_curve_id: state.chargeCurveId,
+            session_mix: state.chargeCurveId === 'mixed' ? readSessionMix() : null
         },
         calculator: {
             avg_service_time: avgServiceTime,
-            safety_buffer: safetyBuffer
+            safety_buffer: LEGACY_SAFETY_BUFFER
         }
     };
 
@@ -590,6 +659,21 @@ function initDistributionEditor() {
     });
 
     renderDistributionEditor();
+
+    chargeCurveSelect.addEventListener('change', event => {
+        state.chargeCurveId = event.target.value || 'legacy';
+        renderCurveControls();
+    });
+
+    mixDcFastInput.addEventListener('change', () => {
+        mixDcFastInput.value = String(Math.round(parseMixInput(mixDcFastInput, 40)));
+    });
+
+    mixAcL2Input.addEventListener('change', () => {
+        mixAcL2Input.value = String(Math.round(parseMixInput(mixAcL2Input, 60)));
+    });
+
+    renderCurveControls();
 }
 
 // Event listeners
@@ -598,6 +682,7 @@ loadExampleBtn.addEventListener('click', loadExample);
 
 document.addEventListener('DOMContentLoaded', () => {
     initDistributionEditor();
+    loadChargeCurveCatalog();
 });
 
 // Display results
@@ -621,6 +706,18 @@ function displayResults(result) {
         overallPeakBays: result.overall_peak_bays ?? result.peak_bays,
         peakDay: result.peak_day || dayOrder[0]
     };
+
+    if (result.charge_curve_id) {
+        state.chargeCurveId = result.charge_curve_id;
+        chargeCurveSelect.value = state.chargeCurveId;
+    }
+
+    if (result.session_mix && typeof result.session_mix.dc_fast === 'number' && typeof result.session_mix.ac_l2 === 'number') {
+        mixDcFastInput.value = String(Math.round(result.session_mix.dc_fast * 100));
+        mixAcL2Input.value = String(Math.round(result.session_mix.ac_l2 * 100));
+    }
+    renderCurveControls();
+
     state.selectedResultDay = dayResults[result.active_day] ? result.active_day : dayOrder[0];
 
     maxBaysDisplay.textContent = state.resultSet.overallPeakBays;

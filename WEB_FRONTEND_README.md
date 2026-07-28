@@ -51,7 +51,9 @@ Calculator controls remain:
 
 - Total daily sessions
 - Average service time (minutes)
-- Safety buffer
+- Charge curve strategy (legacy, AC L2, DC fast, mixed AC/DC)
+- Mixed-session split inputs (DC fast % and AC L2 %) when mixed strategy is selected
+- Buffer setting field retained for compatibility with older payloads
 
 ## API Overview
 
@@ -67,6 +69,8 @@ Legacy request format:
 {
   "profile": {
     "total_sessions": 100,
+    "charge_curve_id": "legacy",
+    "session_mix": null,
     "hourly_dist": [0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.08]
   },
   "calculator": {
@@ -76,12 +80,19 @@ Legacy request format:
 }
 ```
 
+Note: `safety_buffer` is retained for compatibility, but the calculator now samples a per-session buffer from a normal distribution with mean 4 minutes and standard deviation 1 minute, clamped at 0.
+
 New editor-aware request format:
 
 ```json
 {
   "profile": {
     "total_sessions": 100,
+    "charge_curve_id": "mixed",
+    "session_mix": {
+      "dc_fast": 0.4,
+      "ac_l2": 0.6
+    },
     "hourly_editor": {
       "mode": "sessions",
       "linked": false,
@@ -109,6 +120,9 @@ Notes:
 - When mode is sessions, total_sessions is inferred from the selected active_day values.
 - When mode is proportion, total_sessions comes from profile.total_sessions.
 - All hourly arrays must contain 24 non-negative values.
+- Supported charge_curve_id values: legacy, ac_l2, dc_fast, mixed.
+- session_mix is used only for mixed and is normalized by the backend to sum to 1.0.
+- The legacy `safety_buffer` field is accepted by the API for compatibility, but it does not drive the calculation.
 
 Successful response format:
 
@@ -124,6 +138,41 @@ Successful response format:
   ],
   "peak_bays": 5,
   "peak_hour": 8,
+  "active_day": "Mon",
+  "day_order": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  "day_results": {
+    "Mon": {
+      "results": [
+        {
+          "hour": 0,
+          "sessions": 4,
+          "utilisation": 0.63,
+          "bays_needed": 2
+        }
+      ],
+      "peak_bays": 5,
+      "peak_hour": 8,
+      "summary": {
+        "peak_bays": 5,
+        "peak_hour": 8,
+        "avg_utilisation": 0.44,
+        "max_utilisation": 0.78
+      },
+      "total_sessions": 100,
+      "charge_curve_id": "mixed",
+      "session_mix": {
+        "dc_fast": 0.4,
+        "ac_l2": 0.6
+      }
+    }
+  },
+  "overall_peak_bays": 6,
+  "peak_day": "Tue",
+  "charge_curve_id": "mixed",
+  "session_mix": {
+    "dc_fast": 0.4,
+    "ac_l2": 0.6
+  },
   "summary": {
     "peak_bays": 5,
     "peak_hour": 8,
@@ -148,9 +197,17 @@ Returns preset distributions.
 - Existing proportional presets: flat, morning_peak, commuter_double_peak
 - New editor presets: office, retail, overnight (each includes sessions and proportion)
 
+### GET /api/charge-curves
+
+Returns curve selector options for the frontend. Each option includes:
+
+- id
+- label
+- description
+
 ### GET /api/example
 
-Returns an example legacy profile and calculator payload that the UI can load.
+Returns an example profile and calculator payload that the UI can load, including charge_curve_id and session_mix fields.
 
 ## Troubleshooting
 

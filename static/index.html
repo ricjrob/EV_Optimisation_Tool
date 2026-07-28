@@ -84,6 +84,30 @@
                         <h3>Calculator Parameters</h3>
 
                         <div class="form-group">
+                            <label for="charge-curve">Charge Curve Strategy:</label>
+                            <select id="charge-curve">
+                                <option value="legacy">Legacy average duration</option>
+                                <option value="ac_l2">AC Level 2 taper curve</option>
+                                <option value="dc_fast">DC fast taper curve</option>
+                                <option value="mixed">Mixed AC/DC sessions</option>
+                            </select>
+                            <small>Optional stochastic session-duration model used during bay sizing</small>
+                        </div>
+
+                        <div id="session-mix-group" class="form-group hidden">
+                            <label>Mixed session split (%)</label>
+                            <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                                <label for="mix-dc-fast">DC Fast</label>
+                                <input type="number" id="mix-dc-fast" min="0" max="100" step="1" value="40"
+                                    style="width:90px;">
+                                <label for="mix-ac-l2">AC L2</label>
+                                <input type="number" id="mix-ac-l2" min="0" max="100" step="1" value="60"
+                                    style="width:90px;">
+                            </div>
+                            <small>Used only when strategy is "Mixed AC/DC sessions"</small>
+                        </div>
+
+                        <div class="form-group">
                             <label for="avg-service-time">Average Service Time (minutes):</label>
                             <input type="number" id="avg-service-time" min="0" step="0.5" value="35"
                                 placeholder="e.g., 35">
@@ -91,10 +115,10 @@
                         </div>
 
                         <div class="form-group">
-                            <label for="safety-buffer">Safety Buffer (0-1):</label>
-                            <input type="number" id="safety-buffer" min="0" max="1" step="0.05" value="0.15"
-                                placeholder="e.g., 0.15">
-                            <small>Additional buffer for variability (0.15 = 15%)</small>
+                            <label>Buffer model</label>
+                            <small>The calculator adds a buffer for people entering and exiting the bay by sampling a
+                                normal distribution with a mean of 4 minutes and a standard deviation of 1 minute,
+                                with any negative values clamped to 0.</small>
                         </div>
                     </div>
 
@@ -163,7 +187,7 @@
         </footer>
     </div>
 
-    <script src="/static/script.js?v=6"></script>
+    <script src="/static/script.js?v=7"></script>
 </body>
 
 </html>

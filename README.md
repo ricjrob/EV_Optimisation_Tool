@@ -14,7 +14,8 @@ This MVP estimates how many charging bays are required from:
 - Expected charging sessions per day
 - Hourly demand shape
 - Average service time
-- Safety buffer
+- Per-session buffer sampled from a normal distribution with mean 4 minutes and standard deviation 1 minute
+- Optional charge-curve strategy (legacy, AC L2 taper, DC fast taper, or mixed AC/DC)
 
 It is intended as a transparent baseline that can be extended with richer forecasting inputs later.
 
@@ -76,6 +77,9 @@ Accepted profile formats:
 
 - Legacy: profile.hourly_dist as 24-value distribution
 - New: profile.hourly_editor with day-based editor data
+- Optional charge-curve fields:
+	- profile.charge_curve_id
+	- profile.session_mix (used when charge_curve_id is mixed)
 
 Returns:
 
@@ -83,6 +87,9 @@ Returns:
 - peak_bays
 - peak_hour
 - summary object
+- active_day, day_order, day_results
+- overall_peak_bays, peak_day
+- charge_curve_id, session_mix (normalized mix when using mixed mode)
 
 ### GET /api/presets
 
@@ -95,6 +102,15 @@ Returns built-in profile presets, including:
 - retail (sessions and proportion)
 - overnight (sessions and proportion)
 
+### GET /api/charge-curves
+
+Returns available charge-curve options for frontend selector binding:
+
+- legacy
+- ac_l2
+- dc_fast
+- mixed
+
 ### GET /api/example
 
 Returns an example profile and calculator payload.
@@ -106,6 +122,10 @@ For complete request and response examples, see WEB_FRONTEND_README.md.
 - Hourly arrays must contain exactly 24 non-negative values.
 - Any input hourly values are normalized before calculation.
 - In sessions editor mode, total sessions are inferred from the selected active day.
+- The calculator samples one buffer value per session from a truncated normal distribution with mean 4 minutes and standard deviation 1 minute.
+- charge_curve_id is validated server-side; unsupported values return HTTP 400.
+- mixed session_mix values are normalized to sum to 1.0 and must include at least one positive weight.
+- The legacy safety_buffer request field is still accepted for compatibility, but it no longer controls the bay calculation.
 
 ## Next Steps
 
