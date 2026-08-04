@@ -3,9 +3,6 @@ const totalSessionsGroup = document.getElementById('total-sessions-group');
 const totalSessionsInput = document.getElementById('total-sessions');
 const avgServiceTimeInput = document.getElementById('avg-service-time');
 const chargeCurveSelect = document.getElementById('charge-curve');
-const sessionMixGroup = document.getElementById('session-mix-group');
-const mixDcFastInput = document.getElementById('mix-dc-fast');
-const mixAcL2Input = document.getElementById('mix-ac-l2');
 const calculateBtn = document.getElementById('calculate-btn');
 const loadExampleBtn = document.getElementById('load-example-btn');
 const normalizeBtn = document.getElementById('normalize-btn');
@@ -27,6 +24,9 @@ const resetDistributionBtn = document.getElementById('reset-distribution');
 const presetButtons = Array.from(document.querySelectorAll('[data-preset]'));
 
 const resultsSummary = document.getElementById('results-summary');
+const resultsTabs = document.getElementById('results-tabs');
+const tabBayRequirements = document.getElementById('tab-bay-requirements');
+const tabDistributions = document.getElementById('tab-distributions');
 const resultsTable = document.getElementById('results-table');
 const resultsChart = document.getElementById('results-chart');
 const noResults = document.getElementById('no-results');
@@ -39,7 +39,7 @@ const resultsTbody = document.getElementById('results-tbody');
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const LEGACY_SAFETY_BUFFER = 0.15;
+const DEFAULT_BUFFER_FACTOR = 0.15;
 
 const PRESETS = {
     office: [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
@@ -57,7 +57,8 @@ const state = {
     dayValues: initDayValues(),
     resultSet: null,
     selectedResultDay: 'Mon',
-    chargeCurveId: 'legacy'
+    chargeCurveId: 'dc_fast',
+    resultsActiveTab: 'bay-requirements'
 };
 
 function initDayValues() {
@@ -400,30 +401,11 @@ function getEffectiveTotalSessions() {
     return Math.max(1, Math.round(state.totalSessions));
 }
 
-function parseMixInput(inputEl, fallback) {
-    const value = parseFloat(inputEl.value);
-    if (Number.isNaN(value)) {
-        return fallback;
-    }
-    return Math.min(100, Math.max(0, value));
-}
-
-function readSessionMix() {
-    const dcPct = parseMixInput(mixDcFastInput, 40);
-    const acPct = parseMixInput(mixAcL2Input, 60);
-    const total = dcPct + acPct;
-    if (total <= 0) {
-        return { dc_fast: 0.4, ac_l2: 0.6 };
-    }
-    return {
-        dc_fast: dcPct / total,
-        ac_l2: acPct / total
-    };
-}
-
 function renderCurveControls() {
-    const isMixed = state.chargeCurveId === 'mixed';
-    sessionMixGroup.classList.toggle('hidden', !isMixed);
+    state.chargeCurveId = 'dc_fast';
+    if (chargeCurveSelect.value !== 'dc_fast') {
+        chargeCurveSelect.value = 'dc_fast';
+    }
 }
 
 async function loadChargeCurveCatalog() {
@@ -451,7 +433,7 @@ async function loadChargeCurveCatalog() {
         });
 
         if (!Array.from(chargeCurveSelect.options).some(opt => opt.value === state.chargeCurveId)) {
-            state.chargeCurveId = 'legacy';
+            state.chargeCurveId = 'dc_fast';
         }
         chargeCurveSelect.value = state.chargeCurveId;
     } catch (_error) {
@@ -482,12 +464,7 @@ async function loadExample() {
 
         state.totalSessions = totalSessions;
         avgServiceTimeInput.value = data.calculator.avg_service_time;
-        state.chargeCurveId = (data.profile && data.profile.charge_curve_id) || 'legacy';
-        const mix = data.profile && data.profile.session_mix;
-        if (mix && typeof mix.dc_fast === 'number' && typeof mix.ac_l2 === 'number') {
-            mixDcFastInput.value = String(Math.round(mix.dc_fast * 100));
-            mixAcL2Input.value = String(Math.round(mix.ac_l2 * 100));
-        }
+        state.chargeCurveId = (data.profile && data.profile.charge_curve_id) || 'dc_fast';
         chargeCurveSelect.value = state.chargeCurveId;
 
         renderDistributionEditor();
@@ -528,12 +505,11 @@ async function handleCalculate() {
             total_sessions: totalSessions,
             hourly_dist: hourlyDist,
             hourly_editor: exportHourlyEditorPayload(),
-            charge_curve_id: state.chargeCurveId,
-            session_mix: state.chargeCurveId === 'mixed' ? readSessionMix() : null
+            charge_curve_id: 'dc_fast'
         },
         calculator: {
             avg_service_time: avgServiceTime,
-            safety_buffer: LEGACY_SAFETY_BUFFER
+            safety_buffer: DEFAULT_BUFFER_FACTOR
         }
     };
 
@@ -661,16 +637,8 @@ function initDistributionEditor() {
     renderDistributionEditor();
 
     chargeCurveSelect.addEventListener('change', event => {
-        state.chargeCurveId = event.target.value || 'legacy';
+        state.chargeCurveId = event.target.value || 'dc_fast';
         renderCurveControls();
-    });
-
-    mixDcFastInput.addEventListener('change', () => {
-        mixDcFastInput.value = String(Math.round(parseMixInput(mixDcFastInput, 40)));
-    });
-
-    mixAcL2Input.addEventListener('change', () => {
-        mixAcL2Input.value = String(Math.round(parseMixInput(mixAcL2Input, 60)));
     });
 
     renderCurveControls();
@@ -682,8 +650,29 @@ loadExampleBtn.addEventListener('click', loadExample);
 
 document.addEventListener('DOMContentLoaded', () => {
     initDistributionEditor();
+    initResultsTabs();
     loadChargeCurveCatalog();
 });
+
+// Results tab switching
+function initResultsTabs() {
+    document.querySelectorAll('.results-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.resultsActiveTab = btn.dataset.tab;
+            document.querySelectorAll('.results-tab').forEach(b => {
+                b.classList.toggle('active', b === btn);
+            });
+            tabBayRequirements.classList.toggle('hidden', state.resultsActiveTab !== 'bay-requirements');
+            tabDistributions.classList.toggle('hidden', state.resultsActiveTab !== 'distributions');
+            if (state.resultsActiveTab === 'distributions' && state.resultSet) {
+                const selected = state.resultSet.dayResults[state.selectedResultDay];
+                if (selected) {
+                    renderDistributionsPanel(selected.soc_samples || [], selected.duration_samples || []);
+                }
+            }
+        });
+    });
+}
 
 // Display results
 function displayResults(result) {
@@ -711,11 +700,6 @@ function displayResults(result) {
         state.chargeCurveId = result.charge_curve_id;
         chargeCurveSelect.value = state.chargeCurveId;
     }
-
-    if (result.session_mix && typeof result.session_mix.dc_fast === 'number' && typeof result.session_mix.ac_l2 === 'number') {
-        mixDcFastInput.value = String(Math.round(result.session_mix.dc_fast * 100));
-        mixAcL2Input.value = String(Math.round(result.session_mix.ac_l2 * 100));
-    }
     renderCurveControls();
 
     state.selectedResultDay = dayResults[result.active_day] ? result.active_day : dayOrder[0];
@@ -723,6 +707,7 @@ function displayResults(result) {
     maxBaysDisplay.textContent = state.resultSet.overallPeakBays;
     peakDayDisplay.textContent = state.resultSet.peakDay;
     resultsSummary.classList.remove('hidden');
+    resultsTabs.classList.remove('hidden');
     noResults.classList.add('hidden');
 
     renderResultsDayPicker();
@@ -786,6 +771,10 @@ function renderSelectedDayResults() {
 
     drawChart(selected.results);
     resultsChart.classList.remove('hidden');
+
+    if (state.resultsActiveTab === 'distributions') {
+        renderDistributionsPanel(selected.soc_samples || [], selected.duration_samples || []);
+    }
 }
 
 // Draw chart using Canvas
@@ -886,6 +875,145 @@ function drawChart(results) {
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Hour of Day', width / 2, height - 18);
+}
+
+// Histogram chart for distributions tab
+function drawHistogram(canvasId, samples, options) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) {
+        return;
+    }
+    const ctx = canvas.getContext('2d');
+    const { binSize, minVal, maxVal, xLabel, yLabel, gradientTop, gradientBottom, formatter, statFormatter } = options;
+
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = Math.max(280, rect.width - 32);
+    canvas.height = 280;
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const plot = { top: 32, right: 20, bottom: 62, left: 54 };
+
+    const numBins = Math.max(1, Math.ceil((maxVal - minVal) / binSize));
+    const bins = Array(numBins).fill(0);
+    samples.forEach(v => {
+        const idx = Math.min(numBins - 1, Math.floor((v - minVal) / binSize));
+        if (idx >= 0) {
+            bins[idx]++;
+        }
+    });
+
+    const maxCount = bins.reduce((m, v) => Math.max(m, v), 1);
+    const plotWidth = width - plot.left - plot.right;
+    const plotHeight = height - plot.top - plot.bottom;
+    const barW = plotWidth / numBins;
+    const scaleY = plotHeight / maxCount;
+
+    ctx.fillStyle = '#f9f9f9';
+    ctx.fillRect(0, 0, width, height);
+
+    const yStep = Math.max(1, Math.ceil(maxCount / 5));
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 1;
+    for (let y = 0; y <= maxCount; y += yStep) {
+        const yPos = height - plot.bottom - y * scaleY;
+        ctx.beginPath();
+        ctx.moveTo(plot.left, yPos);
+        ctx.lineTo(width - plot.right, yPos);
+        ctx.stroke();
+        ctx.fillStyle = '#666';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(y), plot.left - 6, yPos);
+    }
+
+    bins.forEach((count, i) => {
+        if (count === 0) {
+            return;
+        }
+        const x = plot.left + i * barW;
+        const bh = count * scaleY;
+        const y = height - plot.bottom - bh;
+        const gradient = ctx.createLinearGradient(0, y, 0, height - plot.bottom);
+        gradient.addColorStop(0, gradientTop);
+        gradient.addColorStop(1, gradientBottom);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x + 1, y, Math.max(1, barW - 2), bh);
+    });
+
+    const labelStep = numBins <= 12 ? 1 : Math.ceil(numBins / 12);
+    ctx.fillStyle = '#333';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    bins.forEach((_, i) => {
+        if (i % labelStep === 0) {
+            const x = plot.left + (i + 0.5) * barW;
+            ctx.fillText(formatter(minVal + i * binSize), x, height - plot.bottom + 8);
+        }
+    });
+
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(plot.left, plot.top);
+    ctx.lineTo(plot.left, height - plot.bottom);
+    ctx.lineTo(width - plot.right, height - plot.bottom);
+    ctx.stroke();
+
+    ctx.save();
+    ctx.translate(16, height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(yLabel, 0, 0);
+    ctx.restore();
+
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(xLabel, width / 2, height - 14);
+
+    if (samples.length > 0) {
+        const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+        const sorted = [...samples].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        ctx.fillStyle = '#667eea';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`n=${samples.length}  mean: ${statFormatter(mean)}  median: ${statFormatter(median)}`, width - plot.right, plot.top - 20);
+    }
+}
+
+function renderDistributionsPanel(socSamples, durationSamples) {
+    drawHistogram('soc-chart-canvas', socSamples, {
+        binSize: 0.05,
+        minVal: 0,
+        maxVal: 0.85,
+        xLabel: 'Arrival SOC',
+        yLabel: 'Sessions',
+        gradientTop: '#34d399',
+        gradientBottom: '#059669',
+        formatter: v => `${Math.round(v * 100)}%`,
+        statFormatter: v => `${(v * 100).toFixed(1)}%`
+    });
+
+    const maxDuration = durationSamples.reduce((m, v) => Math.max(m, v), 0);
+    const durationMax = Math.max(60, Math.ceil(maxDuration / 10) * 10);
+    drawHistogram('duration-chart-canvas', durationSamples, {
+        binSize: 5,
+        minVal: 0,
+        maxVal: durationMax,
+        xLabel: 'Charging Duration (min)',
+        yLabel: 'Sessions',
+        gradientTop: '#fb923c',
+        gradientBottom: '#ea580c',
+        formatter: v => `${Math.round(v)}`,
+        statFormatter: v => `${v.toFixed(1)} min`
+    });
 }
 
 // Error/Success messages

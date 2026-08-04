@@ -84,27 +84,11 @@
                         <h3>Calculator Parameters</h3>
 
                         <div class="form-group">
-                            <label for="charge-curve">Charge Curve Strategy:</label>
+                            <label for="charge-curve">DC Charging Model:</label>
                             <select id="charge-curve">
-                                <option value="legacy">Legacy average duration</option>
-                                <option value="ac_l2">AC Level 2 taper curve</option>
-                                <option value="dc_fast">DC fast taper curve</option>
-                                <option value="mixed">Mixed AC/DC sessions</option>
+                                <option value="dc_fast">DC fast charging curve</option>
                             </select>
-                            <small>Optional stochastic session-duration model used during bay sizing</small>
-                        </div>
-
-                        <div id="session-mix-group" class="form-group hidden">
-                            <label>Mixed session split (%)</label>
-                            <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-                                <label for="mix-dc-fast">DC Fast</label>
-                                <input type="number" id="mix-dc-fast" min="0" max="100" step="1" value="40"
-                                    style="width:90px;">
-                                <label for="mix-ac-l2">AC L2</label>
-                                <input type="number" id="mix-ac-l2" min="0" max="100" step="1" value="60"
-                                    style="width:90px;">
-                            </div>
-                            <small>Used only when strategy is "Mixed AC/DC sessions"</small>
+                            <small>DC-only stochastic charging model used during bay sizing</small>
                         </div>
 
                         <div class="form-group">
@@ -151,28 +135,50 @@
                         </div>
                     </div>
 
-                    <div id="results-table" class="results-table hidden">
-                        <h3 id="results-table-title">Hourly Breakdown</h3>
-                        <div class="table-wrapper">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Hour</th>
-                                        <th>Sessions</th>
-                                        <th>Utilisation</th>
-                                        <th>Bays Needed</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="results-tbody">
-                                    <!-- Populated by JavaScript -->
-                                </tbody>
-                            </table>
+                    <div id="results-tabs" class="results-tabs hidden">
+                        <button type="button" class="results-tab active" data-tab="bay-requirements">Bay
+                            Requirements</button>
+                        <button type="button" class="results-tab" data-tab="distributions">Charging
+                            Distributions</button>
+                    </div>
+
+                    <div id="tab-bay-requirements">
+                        <div id="results-table" class="results-table hidden">
+                            <h3 id="results-table-title">Hourly Breakdown</h3>
+                            <div class="table-wrapper">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Hour</th>
+                                            <th>Sessions</th>
+                                            <th>Utilisation</th>
+                                            <th>Bays Needed</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="results-tbody">
+                                        <!-- Populated by JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div id="results-chart" class="results-chart hidden">
+                            <h3 id="results-chart-title">Bays Required by Hour</h3>
+                            <canvas id="chart-canvas"></canvas>
                         </div>
                     </div>
 
-                    <div id="results-chart" class="results-chart hidden">
-                        <h3 id="results-chart-title">Bays Required by Hour</h3>
-                        <canvas id="chart-canvas"></canvas>
+                    <div id="tab-distributions" class="hidden">
+                        <div class="dist-charts-grid">
+                            <div class="dist-chart-section results-chart">
+                                <h3>Arrival State of Charge</h3>
+                                <canvas id="soc-chart-canvas"></canvas>
+                            </div>
+                            <div class="dist-chart-section results-chart">
+                                <h3>Charging Duration</h3>
+                                <canvas id="duration-chart-canvas"></canvas>
+                            </div>
+                        </div>
                     </div>
 
                     <div id="no-results" class="no-results">
@@ -187,7 +193,7 @@
         </footer>
     </div>
 
-    <script src="/static/script.js?v=7"></script>
+    <script src="/static/script.js?v=8"></script>
 </body>
 
 </html>

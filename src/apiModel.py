@@ -18,7 +18,6 @@ class apiModel:
         avg_service_time: float,
         safety_buffer: float,
         charge_curve_id: str | None = None,
-        session_mix: dict[str, float] | None = None,
     ) -> None:
         self.avg_service_time = avg_service_time
         self.safety_buffer = safety_buffer
@@ -26,7 +25,6 @@ class apiModel:
             avg_service_time,
             safety_buffer,
             charge_curve_id=charge_curve_id,
-            session_mix=session_mix,
         )
 
     def run(self) -> BayResult:

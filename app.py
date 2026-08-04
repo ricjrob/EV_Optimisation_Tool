@@ -23,8 +23,7 @@ class ProfileConfig(BaseModel):
     total_sessions: int
     hourly_dist: list[float] | None = None
     hourly_editor: HourlyEditorConfig | None = None
-    charge_curve_id: str = "legacy"
-    session_mix: dict[str, float] | None = None
+    charge_curve_id: str = "dc_fast"
 
 
 class CalculatorConfig(BaseModel):
@@ -50,7 +49,7 @@ model = apiModel()
 
 
 EDITOR_DAYS = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
-CHARGE_CURVES = {"legacy", "ac_l2", "dc_fast", "mixed"}
+CHARGE_CURVES = {"dc_fast"}
 
 
 def _validate_hour_values(values: list[float]) -> None:
@@ -198,31 +197,14 @@ def _resolve_profile_distributions(
 
 def _resolve_charge_curve_config(
     profile: ProfileConfig,
-) -> tuple[str, dict[str, float] | None]:
-    curve_id = (profile.charge_curve_id or "legacy").strip().lower()
+) -> str:
+    curve_id = (profile.charge_curve_id or "dc_fast").strip().lower()
     if curve_id not in CHARGE_CURVES:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported charge_curve_id '{profile.charge_curve_id}'",
+            detail="Only 'dc_fast' is supported in the DC-only model",
         )
-
-    if curve_id != "mixed":
-        return curve_id, None
-
-    raw_mix = profile.session_mix or {"dc_fast": 0.4, "ac_l2": 0.6}
-    dc = float(raw_mix.get("dc_fast", 0.4))
-    ac = float(raw_mix.get("ac_l2", 0.6))
-    dc = max(0.0, dc)
-    ac = max(0.0, ac)
-    total = dc + ac
-
-    if total <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="session_mix weights must contain at least one positive value",
-        )
-
-    return curve_id, {"dc_fast": dc / total, "ac_l2": ac / total}
+    return curve_id
 
 
 # not used in app
@@ -240,7 +222,7 @@ async def calculate(request: CalculationRequest):
         active_day, day_inputs, day_order = _resolve_profile_distributions(
             request.profile
         )
-        charge_curve_id, session_mix = _resolve_charge_curve_config(request.profile)
+        charge_curve_id = _resolve_charge_curve_config(request.profile)
 
         day_results = {}
         overall_peak_bays = -1
@@ -255,7 +237,6 @@ async def calculate(request: CalculationRequest):
                 request.calculator.avg_service_time,
                 request.calculator.safety_buffer,
                 charge_curve_id,
-                session_mix,
             )
 
             result = model.run()
@@ -274,7 +255,8 @@ async def calculate(request: CalculationRequest):
                 "summary": result.get_summary(),
                 "total_sessions": total_sessions,
                 "charge_curve_id": charge_curve_id,
-                "session_mix": session_mix,
+                "soc_samples": result.soc_samples,
+                "duration_samples": result.duration_samples,
             }
             day_results[day] = payload
 
@@ -295,7 +277,6 @@ async def calculate(request: CalculationRequest):
             "overall_peak_bays": overall_peak_bays,
             "peak_day": peak_day,
             "charge_curve_id": charge_curve_id,
-            "session_mix": session_mix,
         }
 
         return response_data
@@ -425,28 +406,13 @@ async def get_presets(total_sessions: int = 100):
 
 @app.get("/api/charge-curves")
 async def get_charge_curves():
-    """Return available charge-curve strategies for session duration modeling."""
+    """Return available DC charging model options for session duration modeling."""
     return {
         "curves": [
             {
-                "id": "legacy",
-                "label": "Legacy average duration",
-                "description": "Uses average service time plus the existing random buffer.",
-            },
-            {
-                "id": "ac_l2",
-                "label": "AC Level 2 taper curve",
-                "description": "Piecewise constant-power and taper behavior with moderate session lengths.",
-            },
-            {
                 "id": "dc_fast",
-                "label": "DC fast taper curve",
-                "description": "Shorter sessions with faster constant-power charging and sharper taper.",
-            },
-            {
-                "id": "mixed",
-                "label": "Mixed AC/DC sessions",
-                "description": "Samples sessions from AC and DC curves using session_mix weights.",
+                "label": "DC fast charging curve",
+                "description": "DC-only stochastic charging model with non-linear SOC taper and battery-size-correlated peak power.",
             },
         ]
     }
@@ -459,8 +425,7 @@ async def get_example():
     return {
         "profile": {
             "total_sessions": 100,
-            "charge_curve_id": "legacy",
-            "session_mix": None,
+            "charge_curve_id": "dc_fast",
             "hourly_dist": [
                 0.02,
                 0.02,

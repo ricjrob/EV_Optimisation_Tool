@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -7,6 +7,8 @@ class BayResult:
     peak_bays: int
     peak_hour: int
     util_by_hour: list[float]
+    soc_samples: list[float] = field(default_factory=list)
+    duration_samples: list[float] = field(default_factory=list)
 
     def get_summary(self) -> str:
         # Human-readable one-liner for the UI header
