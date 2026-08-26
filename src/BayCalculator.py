@@ -1,6 +1,7 @@
 import math
 import random
 from typing import ClassVar
+
 from .BayResult import BayResult
 from .DayProfile import DayProfile
 
@@ -31,14 +32,10 @@ class BayCalculator:
 
     def __init__(
         self,
-        avg_service_time: float = 0.5,
-        safety_buffer: float = 0.05,
         buffer_mean_minutes: float = 4.0,
         buffer_stddev_minutes: float = 1.0,
         charge_curve_id: str | None = None,
     ):
-        self.avg_service_time = avg_service_time
-        self.safety_buffer = safety_buffer
         self.buffer_mean_minutes = buffer_mean_minutes
         self.buffer_stddev_minutes = buffer_stddev_minutes
         # Model is now DC-only. Keep incoming parameter for backward compatibility.
@@ -124,7 +121,7 @@ class BayCalculator:
     def _sample_empirical_curve_duration_minutes(self, curve_id: str) -> float:
         curve = self.CURVE_PRESETS.get(curve_id)
         if curve is None:
-            return self.avg_service_time + self._draw_buffer_minutes()
+            return self._draw_buffer_minutes()
 
         initial_soc, target_soc = self._draw_soc_pair_for_curve(curve_id)
         minutes = self._simulate_soc_duration_minutes(curve, initial_soc, target_soc)
@@ -134,7 +131,7 @@ class BayCalculator:
         """Returns (duration_minutes, arrival_soc)."""
         curve = self.CURVE_PRESETS.get(curve_id)
         if curve is None:
-            return self.avg_service_time + self._draw_buffer_minutes(), 0.5
+            return self._draw_buffer_minutes(), 0.5
         initial_soc, target_soc = self._draw_soc_pair_for_curve(curve_id)
         minutes = self._simulate_soc_duration_minutes(curve, initial_soc, target_soc)
         return minutes + self._draw_buffer_minutes(), initial_soc
@@ -142,7 +139,7 @@ class BayCalculator:
     def _sample_curve_duration_minutes(self, curve_id: str) -> float:
         if curve_id == "dc_fast":
             return self._sample_empirical_curve_duration_minutes(curve_id)
-        return self.avg_service_time + self._draw_buffer_minutes()
+        return self._draw_buffer_minutes()
 
     def _resolve_curve_id(self) -> str:
         return "dc_fast"

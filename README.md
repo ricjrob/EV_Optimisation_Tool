@@ -125,7 +125,7 @@ For complete request and response examples, see WEB_FRONTEND_README.md.
 - The calculator samples one buffer value per session from a truncated normal distribution with mean 4 minutes and standard deviation 1 minute.
 - charge_curve_id is validated server-side; unsupported values return HTTP 400.
 - mixed session_mix values are normalized to sum to 1.0 and must include at least one positive weight.
-- The legacy safety_buffer request field is still accepted for compatibility, but it no longer controls the bay calculation.
+- The calculator now uses a fixed DC-only model with an internal per-session buffer distribution.
 
 ## Next Steps
 

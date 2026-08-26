@@ -26,14 +26,8 @@ class ProfileConfig(BaseModel):
     charge_curve_id: str = "dc_fast"
 
 
-class CalculatorConfig(BaseModel):
-    avg_service_time: float
-    safety_buffer: float
-
-
 class CalculationRequest(BaseModel):
     profile: ProfileConfig
-    calculator: CalculatorConfig
 
 
 class BayResultResponse(BaseModel):
@@ -233,11 +227,7 @@ async def calculate(request: CalculationRequest):
 
             model.set_profile(total_sessions, hourly_dist)
             model.profile.set_total_sessions(total_sessions)
-            model.set_calculator(
-                request.calculator.avg_service_time,
-                request.calculator.safety_buffer,
-                charge_curve_id,
-            )
+            model.set_calculator(charge_curve_id)
 
             result = model.run()
             payload = {
@@ -452,10 +442,6 @@ async def get_example():
                 0.03,
                 0.02,  # Hours 20-23 (night)
             ],
-        },
-        "calculator": {
-            "avg_service_time": 35.0,
-            "safety_buffer": 0.15,
         },
     }
 

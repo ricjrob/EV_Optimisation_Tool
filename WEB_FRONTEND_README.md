@@ -47,19 +47,17 @@ The hourly distribution editor now supports:
 - Drag bars and numeric hour-by-hour editing
 - Normalize to 100% in proportion mode
 
-Calculator controls remain:
+Calculator behavior is fixed to the backend model:
 
 - Total daily sessions
-- Average service time (minutes)
-- Charge curve strategy (legacy, AC L2, DC fast, mixed AC/DC)
+- Charge curve strategy is handled internally by the app
 - Mixed-session split inputs (DC fast % and AC L2 %) when mixed strategy is selected
-- Buffer setting field retained for compatibility with older payloads
 
 ## API Overview
 
 ### POST /api/calculate
 
-Calculates bay demand from profile + calculator config.
+Calculates bay demand from profile config.
 
 The endpoint accepts either legacy hourly_dist or the new hourly_editor payload.
 
@@ -72,15 +70,11 @@ Legacy request format:
     "charge_curve_id": "legacy",
     "session_mix": null,
     "hourly_dist": [0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.08]
-  },
-  "calculator": {
-    "avg_service_time": 35.0,
-    "safety_buffer": 0.15
   }
 }
 ```
 
-Note: `safety_buffer` is retained for compatibility, but the calculator now samples a per-session buffer from a normal distribution with mean 4 minutes and standard deviation 1 minute, clamped at 0.
+Note: the calculator samples a per-session buffer from a normal distribution with mean 4 minutes and standard deviation 1 minute, clamped at 0.
 
 New editor-aware request format:
 
@@ -107,10 +101,6 @@ New editor-aware request format:
         "Sun": [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0]
       }
     }
-  },
-  "calculator": {
-    "avg_service_time": 35.0,
-    "safety_buffer": 0.15
   }
 }
 ```
@@ -122,7 +112,7 @@ Notes:
 - All hourly arrays must contain 24 non-negative values.
 - Supported charge_curve_id values: legacy, ac_l2, dc_fast, mixed.
 - session_mix is used only for mixed and is normalized by the backend to sum to 1.0.
-- The legacy `safety_buffer` field is accepted by the API for compatibility, but it does not drive the calculation.
+- The calculator always uses the backend's fixed DC-only buffer model.
 
 Successful response format:
 
@@ -207,7 +197,7 @@ Returns curve selector options for the frontend. Each option includes:
 
 ### GET /api/example
 
-Returns an example profile and calculator payload that the UI can load, including charge_curve_id and session_mix fields.
+Returns an example profile payload that the UI can load, including charge_curve_id and session_mix fields.
 
 ## Troubleshooting
 

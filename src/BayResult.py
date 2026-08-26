@@ -22,16 +22,17 @@ class BayResult:
 
     # not used in app
     def to_csv(self) -> str:
-        # Hour-by-hour table: hour, sessions, bays, utilisation
-        # Ready to write to file or copy-paste into Excel
-        pass
+        rows = ["hour,bays_required,utilisation"]
+        for hour, (bays, util) in enumerate(zip(self.bays_per_hour, self.util_by_hour)):
+            rows.append(f"{hour},{bays},{util:.6f}")
+        return "\n".join(rows)
 
     # not used in app
     def get_hour_label(self, hour: int) -> str:
-        # Converts 0–23 index to "00:00", "08:00" etc. for display
-        pass
+        if hour < 0 or hour > 23:
+            raise ValueError("hour must be between 0 and 23")
+        return f"{hour:02d}:00"
 
     # not used in app
     def is_peak_hour(self, hour: int) -> bool:
-        # True if this hour equals peak_hour — useful for highlighting in UI
-        pass
+        return hour == self.peak_hour

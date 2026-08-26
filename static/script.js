@@ -1,8 +1,6 @@
 // DOM elements
 const totalSessionsGroup = document.getElementById('total-sessions-group');
 const totalSessionsInput = document.getElementById('total-sessions');
-const avgServiceTimeInput = document.getElementById('avg-service-time');
-const chargeCurveSelect = document.getElementById('charge-curve');
 const calculateBtn = document.getElementById('calculate-btn');
 const loadExampleBtn = document.getElementById('load-example-btn');
 const normalizeBtn = document.getElementById('normalize-btn');
@@ -39,7 +37,6 @@ const resultsTbody = document.getElementById('results-tbody');
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const DEFAULT_BUFFER_FACTOR = 0.15;
 
 const PRESETS = {
     office: [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0],
@@ -57,7 +54,6 @@ const state = {
     dayValues: initDayValues(),
     resultSet: null,
     selectedResultDay: 'Mon',
-    chargeCurveId: 'dc_fast',
     resultsActiveTab: 'bay-requirements'
 };
 
@@ -401,48 +397,6 @@ function getEffectiveTotalSessions() {
     return Math.max(1, Math.round(state.totalSessions));
 }
 
-function renderCurveControls() {
-    state.chargeCurveId = 'dc_fast';
-    if (chargeCurveSelect.value !== 'dc_fast') {
-        chargeCurveSelect.value = 'dc_fast';
-    }
-}
-
-async function loadChargeCurveCatalog() {
-    try {
-        const response = await fetch('/api/charge-curves');
-        if (!response.ok) {
-            return;
-        }
-
-        const data = await response.json();
-        if (!Array.isArray(data.curves) || data.curves.length === 0) {
-            return;
-        }
-
-        chargeCurveSelect.innerHTML = '';
-        data.curves.forEach(curve => {
-            if (!curve || !curve.id || !curve.label) {
-                return;
-            }
-
-            const option = document.createElement('option');
-            option.value = curve.id;
-            option.textContent = curve.label;
-            chargeCurveSelect.appendChild(option);
-        });
-
-        if (!Array.from(chargeCurveSelect.options).some(opt => opt.value === state.chargeCurveId)) {
-            state.chargeCurveId = 'dc_fast';
-        }
-        chargeCurveSelect.value = state.chargeCurveId;
-    } catch (_error) {
-        // Keep static fallback options if catalog loading fails.
-    }
-
-    renderCurveControls();
-}
-
 async function loadExample() {
     try {
         const response = await fetch('/api/example');
@@ -463,12 +417,8 @@ async function loadExample() {
         });
 
         state.totalSessions = totalSessions;
-        avgServiceTimeInput.value = data.calculator.avg_service_time;
-        state.chargeCurveId = (data.profile && data.profile.charge_curve_id) || 'dc_fast';
-        chargeCurveSelect.value = state.chargeCurveId;
 
         renderDistributionEditor();
-        renderCurveControls();
         clearError();
         showSuccess('Example configuration loaded');
     } catch (error) {
@@ -493,12 +443,6 @@ async function handleCalculate() {
         return;
     }
 
-    const avgServiceTime = parseFloat(avgServiceTimeInput.value);
-    if (isNaN(avgServiceTime) || avgServiceTime <= 0) {
-        showError('Average service time must be a positive number');
-        return;
-    }
-
     // Prepare request
     const requestData = {
         profile: {
@@ -506,10 +450,6 @@ async function handleCalculate() {
             hourly_dist: hourlyDist,
             hourly_editor: exportHourlyEditorPayload(),
             charge_curve_id: 'dc_fast'
-        },
-        calculator: {
-            avg_service_time: avgServiceTime,
-            safety_buffer: DEFAULT_BUFFER_FACTOR
         }
     };
 
@@ -635,13 +575,6 @@ function initDistributionEditor() {
     });
 
     renderDistributionEditor();
-
-    chargeCurveSelect.addEventListener('change', event => {
-        state.chargeCurveId = event.target.value || 'dc_fast';
-        renderCurveControls();
-    });
-
-    renderCurveControls();
 }
 
 // Event listeners
@@ -651,7 +584,6 @@ loadExampleBtn.addEventListener('click', loadExample);
 document.addEventListener('DOMContentLoaded', () => {
     initDistributionEditor();
     initResultsTabs();
-    loadChargeCurveCatalog();
 });
 
 // Results tab switching
@@ -695,12 +627,6 @@ function displayResults(result) {
         overallPeakBays: result.overall_peak_bays ?? result.peak_bays,
         peakDay: result.peak_day || dayOrder[0]
     };
-
-    if (result.charge_curve_id) {
-        state.chargeCurveId = result.charge_curve_id;
-        chargeCurveSelect.value = state.chargeCurveId;
-    }
-    renderCurveControls();
 
     state.selectedResultDay = dayResults[result.active_day] ? result.active_day : dayOrder[0];
 
