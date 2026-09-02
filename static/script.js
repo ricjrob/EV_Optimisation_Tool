@@ -1,6 +1,7 @@
 // DOM elements
 const totalSessionsGroup = document.getElementById('total-sessions-group');
 const totalSessionsInput = document.getElementById('total-sessions');
+const simulationRunsInput = document.getElementById('simulation-runs');
 const calculateBtn = document.getElementById('calculate-btn');
 const loadExampleBtn = document.getElementById('load-example-btn');
 const normalizeBtn = document.getElementById('normalize-btn');
@@ -397,6 +398,13 @@ function getEffectiveTotalSessions() {
     return Math.max(1, Math.round(state.totalSessions));
 }
 
+function getEffectiveSimulationRuns() {
+    const entered = Math.round(Number(simulationRunsInput.value));
+    const clamped = Math.min(1000, Math.max(1, isNaN(entered) ? 1 : entered));
+    simulationRunsInput.value = String(clamped);
+    return clamped;
+}
+
 async function loadExample() {
     try {
         const response = await fetch('/api/example');
@@ -443,13 +451,16 @@ async function handleCalculate() {
         return;
     }
 
+    const simulationRuns = getEffectiveSimulationRuns();
+
     // Prepare request
     const requestData = {
         profile: {
             total_sessions: totalSessions,
             hourly_dist: hourlyDist,
             hourly_editor: exportHourlyEditorPayload(),
-            charge_curve_id: 'dc_fast'
+            charge_curve_id: 'dc_fast',
+            simulation_runs: simulationRuns
         }
     };
 
@@ -490,6 +501,10 @@ function initDistributionEditor() {
         } else {
             totalSessionsInput.value = String(Math.max(1, Math.round(state.totalSessions)));
         }
+    });
+
+    simulationRunsInput.addEventListener('change', () => {
+        getEffectiveSimulationRuns();
     });
 
     modeSessionsBtn.addEventListener('click', () => {
@@ -685,18 +700,19 @@ function renderSelectedDayResults() {
     resultsTbody.innerHTML = '';
     selected.results.forEach(row => {
         const tr = document.createElement('tr');
+        const ciLabel = `${row.bays_ci_low.toFixed(1)} - ${row.bays_ci_high.toFixed(1)}`;
         tr.innerHTML = `
             <td>${row.hour}</td>
             <td>${row.sessions}</td>
             <td>${(row.utilisation * 100).toFixed(1)}%</td>
-            <td><strong>${row.bays_needed}</strong></td>
+            <td><strong>${row.bays_mean.toFixed(1)}</strong></td>
+            <td>${ciLabel}</td>
         `;
         resultsTbody.appendChild(tr);
     });
     resultsTable.classList.remove('hidden');
-
-    drawChart(selected.results);
     resultsChart.classList.remove('hidden');
+    drawChart(selected.results);
 
     if (state.resultsActiveTab === 'distributions') {
         renderDistributionsPanel(selected.soc_samples || [], selected.duration_samples || []);
@@ -708,13 +724,18 @@ function drawChart(results) {
     const canvas = document.getElementById('chart-canvas');
     const ctx = canvas.getContext('2d');
 
-    // Set canvas size
+    // Set canvas size (device-pixel-ratio aware so the chart stays sharp on retina displays)
     const rect = canvas.parentElement.getBoundingClientRect();
-    canvas.width = Math.max(320, rect.width - 24);
-    canvas.height = 360;
+    const width = Math.max(320, rect.width - 24);
+    const height = 360;
+    const dpr = window.devicePixelRatio || 1;
 
-    const width = canvas.width;
-    const height = canvas.height;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
     const plot = {
         top: 28,
         right: 20,
@@ -722,7 +743,7 @@ function drawChart(results) {
         left: 74
     };
 
-    const maxBays = Math.max(...results.map(r => r.bays_needed));
+    const maxBays = Math.max(...results.map(r => r.bays_ci_high ?? r.bays_needed));
     const chartMax = Math.max(1, maxBays);
     const plotWidth = width - plot.left - plot.right;
     const plotHeight = height - plot.top - plot.bottom;
@@ -752,7 +773,7 @@ function drawChart(results) {
         ctx.fillText(i.toString(), plot.left - 18, y);
     }
 
-    // Draw bars
+    // Draw bars (median bays needed, with 95% CI error bars around the mean)
     results.forEach((row, index) => {
         const x = plot.left + (index * dataWidth) + (dataWidth * 0.12);
         const barWidth = dataWidth * 0.8;
@@ -767,6 +788,25 @@ function drawChart(results) {
         ctx.fillStyle = gradient;
         ctx.fillRect(x, y, barWidth, barHeight);
 
+        // 95% CI error bar around the mean
+        if (typeof row.bays_ci_low === 'number' && typeof row.bays_ci_high === 'number') {
+            const ciX = x + barWidth / 2;
+            const ciLowY = height - plot.bottom - (row.bays_ci_low * scaleY);
+            const ciHighY = height - plot.bottom - (row.bays_ci_high * scaleY);
+            const capWidth = barWidth * 0.3;
+
+            ctx.strokeStyle = '#1f1147';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(ciX, ciLowY);
+            ctx.lineTo(ciX, ciHighY);
+            ctx.moveTo(ciX - capWidth / 2, ciLowY);
+            ctx.lineTo(ciX + capWidth / 2, ciLowY);
+            ctx.moveTo(ciX - capWidth / 2, ciHighY);
+            ctx.lineTo(ciX + capWidth / 2, ciHighY);
+            ctx.stroke();
+        }
+
         // Hour label
         if (index % xTickStep === 0) {
             ctx.fillStyle = '#333';
@@ -776,6 +816,7 @@ function drawChart(results) {
             ctx.fillText(index.toString(), x + barWidth / 2, height - plot.bottom + 10);
         }
     });
+
 
     // Draw axes
     ctx.strokeStyle = '#333';
@@ -813,11 +854,16 @@ function drawHistogram(canvasId, samples, options) {
     const { binSize, minVal, maxVal, xLabel, yLabel, gradientTop, gradientBottom, formatter, statFormatter } = options;
 
     const rect = canvas.parentElement.getBoundingClientRect();
-    canvas.width = Math.max(280, rect.width - 32);
-    canvas.height = 280;
+    const width = Math.max(280, rect.width - 32);
+    const height = 280;
+    const dpr = window.devicePixelRatio || 1;
 
-    const width = canvas.width;
-    const height = canvas.height;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
     const plot = { top: 32, right: 20, bottom: 62, left: 54 };
 
     const numBins = Math.max(1, Math.ceil((maxVal - minVal) / binSize));

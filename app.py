@@ -1,10 +1,16 @@
+import math
+import statistics
+
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from src.apiModel import apiModel
+from src.BayResult import BayResult
 from src.DayProfile import DayProfile
 import uvicorn
+
+MAX_SIMULATION_RUNS = 1000
 
 app = FastAPI(title="EV Charging Bay Calculator", version="1.0.0")
 
@@ -24,6 +30,7 @@ class ProfileConfig(BaseModel):
     hourly_dist: list[float] | None = None
     hourly_editor: HourlyEditorConfig | None = None
     charge_curve_id: str = "dc_fast"
+    simulation_runs: int = 1
 
 
 class CalculationRequest(BaseModel):
@@ -201,6 +208,74 @@ def _resolve_charge_curve_config(
     return curve_id
 
 
+def _resolve_simulation_runs(profile: ProfileConfig) -> int:
+    runs = int(round(profile.simulation_runs))
+    return max(1, min(MAX_SIMULATION_RUNS, runs))
+
+
+def _mean_ci95(values: list[float]) -> tuple[float, float, float]:
+    """Returns (mean, ci_low, ci_high) for a 95% confidence interval around the mean."""
+    mean_val = statistics.mean(values)
+    if len(values) < 2:
+        return mean_val, mean_val, mean_val
+    stdev = statistics.stdev(values)
+    margin = 1.96 * stdev / math.sqrt(len(values))
+    return mean_val, mean_val - margin, mean_val + margin
+
+
+def _aggregate_day_result(
+    runs: list[BayResult], total_sessions: int, hourly_dist: list[float]
+) -> dict:
+    """Combines multiple Monte Carlo run results into per-hour median/mean/95% CI stats."""
+    hourly_bays = list(zip(*[r.bays_per_hour for r in runs]))
+    hourly_util = list(zip(*[r.util_by_hour for r in runs]))
+    peak_bays_samples = [r.peak_bays for r in runs]
+
+    results = []
+    for hour in range(24):
+        bays_values = hourly_bays[hour]
+        util_values = hourly_util[hour]
+        mean_bays, ci_low, ci_high = _mean_ci95(bays_values)
+        results.append({
+            "hour": hour,
+            "sessions": int(hourly_dist[hour] * total_sessions),
+            "utilisation": statistics.median(util_values),
+            "bays_needed": statistics.median(bays_values),
+            "bays_mean": mean_bays,
+            "bays_ci_low": max(0.0, ci_low),
+            "bays_ci_high": ci_high,
+        })
+
+    median_bays_by_hour = [row["bays_needed"] for row in results]
+    peak_hour = max(range(24), key=lambda h: median_bays_by_hour[h])
+    peak_bays = math.ceil(statistics.median(peak_bays_samples))
+    peak_mean, peak_ci_low, peak_ci_high = _mean_ci95(peak_bays_samples)
+
+    summary = (
+        f"Peak demand (median) of {results[peak_hour]['bays_needed']:.1f} bays at "
+        f"{peak_hour:02d}:00. Recommended provision: {peak_bays} bays "
+        f"(95% CI around the mean: {max(0.0, peak_ci_low):.1f}-{peak_ci_high:.1f} bays, "
+        f"n={len(runs)} runs)."
+    )
+
+    soc_samples = [s for r in runs for s in r.soc_samples]
+    duration_samples = [d for r in runs for d in r.duration_samples]
+
+    return {
+        "results": results,
+        "peak_bays": peak_bays,
+        "peak_hour": peak_hour,
+        "peak_bays_mean": peak_mean,
+        "peak_bays_ci_low": max(0.0, peak_ci_low),
+        "peak_bays_ci_high": peak_ci_high,
+        "summary": summary,
+        "total_sessions": total_sessions,
+        "simulation_runs": len(runs),
+        "soc_samples": soc_samples,
+        "duration_samples": duration_samples,
+    }
+
+
 # not used in app
 @app.get("/")
 async def serve_root():
@@ -217,6 +292,7 @@ async def calculate(request: CalculationRequest):
             request.profile
         )
         charge_curve_id = _resolve_charge_curve_config(request.profile)
+        simulation_runs = _resolve_simulation_runs(request.profile)
 
         day_results = {}
         overall_peak_bays = -1
@@ -229,25 +305,9 @@ async def calculate(request: CalculationRequest):
             model.profile.set_total_sessions(total_sessions)
             model.set_calculator(charge_curve_id)
 
-            result = model.run()
-            payload = {
-                "results": [
-                    {
-                        "hour": hour,
-                        "bays_needed": result.bays_per_hour[hour],
-                        "utilisation": result.util_by_hour[hour],
-                        "sessions": int(hourly_dist[hour] * total_sessions),
-                    }
-                    for hour in range(24)
-                ],
-                "peak_bays": result.peak_bays,
-                "peak_hour": result.peak_hour,
-                "summary": result.get_summary(),
-                "total_sessions": total_sessions,
-                "charge_curve_id": charge_curve_id,
-                "soc_samples": result.soc_samples,
-                "duration_samples": result.duration_samples,
-            }
+            runs = [model.run() for _ in range(simulation_runs)]
+            payload = _aggregate_day_result(runs, total_sessions, hourly_dist)
+            payload["charge_curve_id"] = charge_curve_id
             day_results[day] = payload
 
             if payload["peak_bays"] > overall_peak_bays:
@@ -267,6 +327,7 @@ async def calculate(request: CalculationRequest):
             "overall_peak_bays": overall_peak_bays,
             "peak_day": peak_day,
             "charge_curve_id": charge_curve_id,
+            "simulation_runs": simulation_runs,
         }
 
         return response_data
