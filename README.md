@@ -28,6 +28,9 @@ It is intended as a transparent baseline that can be extended with richer foreca
 - Copy-day and compare-day tools
 - Presets (9-to-5, Retail, Overnight)
 - Drag-to-edit bars plus numeric hour-by-hour inputs
+- Investment summary per bay count: 10-year IRR, discounted payback, and lost
+  customer sessions from cost-per-bay, gross margin per kWh, discount rate, and
+  opex-per-bay inputs
 
 ## Repository Structure
 
@@ -38,6 +41,8 @@ Important files and folders:
 - src/DayProfile.py: distribution validation and presets
 - src/BayCalculator.py: bay calculations and utilisation logic
 - src/BayResult.py: result container and summary helpers
+- src/InvestmentCalculator.py: loss simulation and IRR/payback analysis per bay count
+- src/InvestmentResult.py: investment scenario result container
 - static/index.html: frontend structure
 - static/script.js: frontend state, validation, API calls
 - static/style.css: frontend styling

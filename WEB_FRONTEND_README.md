@@ -53,6 +53,15 @@ Calculator behavior is fixed to the backend model:
 - Charge curve strategy is handled internally by the app
 - Mixed-session split inputs (DC fast % and AC L2 %) when mixed strategy is selected
 
+The results panel has three tabs:
+
+- Bay Requirements: hourly table and bays-by-hour chart
+- Charging Distributions: arrival SOC and duration histograms
+- Investment Summary: per-bay-count financial analysis (IRR, discounted payback,
+  lost sessions) driven by cost per bay, gross margin per kWh, discount rate
+  (default 8%), and opex per bay inputs. Runs on demand via its own button and
+  analyses the day selected in the results day picker.
+
 ## API Overview
 
 ### POST /api/calculate
@@ -179,6 +188,94 @@ Error response format (FastAPI):
   "detail": "Hourly distribution must have 24 values"
 }
 ```
+
+### POST /api/investment
+
+Estimates investment returns for a range of candidate bay counts. Uses the same
+profile payload as /api/calculate plus an investment block. For each bay count,
+a finite-capacity loss simulation (arrivals that find every bay occupied are
+turned away) estimates lost/served sessions per day; served sessions drive the
+annual gross margin, netted against opex per bay, over a fixed horizon
+(default 10 years).
+
+Request format:
+
+```json
+{
+  "profile": {
+    "total_sessions": 100,
+    "hourly_editor": {
+      "mode": "sessions",
+      "linked": false,
+      "active_day": "Mon",
+      "days": { "Mon": [0, 0, 0, 0, 0, 1, 3, 8, 13, 10, 11, 9, 7, 7, 8, 10, 7, 9, 5, 2, 1, 0, 0, 0] }
+    },
+    "charge_curve_id": "dc_fast",
+    "simulation_runs": 25
+  },
+  "investment": {
+    "cost_per_bay": 40000,
+    "gross_margin_per_kwh": 0.35,
+    "discount_rate_pct": 8.0,
+    "opex_per_bay": 2000,
+    "horizon_years": 10,
+    "bay_min": 3,
+    "bay_max": 8
+  }
+}
+```
+
+Notes:
+
+- Only the profile's active_day is analysed; the frontend sets active_day to the
+  day selected in the results day picker.
+- bay_min/bay_max are optional; when omitted the backend estimates a range
+  around a rough peak-bay estimate. The frontend defaults the range to
+  floor(peak CI low) - 1 through ceil(peak CI high) + 2.
+- cost_per_bay must be positive; gross_margin_per_kwh and opex_per_bay must be
+  non-negative; discount_rate_pct must be between 0 and 50.
+- Energy per session is derived from the DC charge-curve model (battery size x
+  SOC delta), not entered by the user.
+
+Successful response format:
+
+```json
+{
+  "day": "Mon",
+  "total_sessions": 100,
+  "simulation_runs": 25,
+  "inputs": {
+    "cost_per_bay": 40000,
+    "gross_margin_per_kwh": 0.35,
+    "discount_rate_pct": 8.0,
+    "opex_per_bay": 2000,
+    "horizon_years": 10,
+    "bay_min": 3,
+    "bay_max": 8
+  },
+  "scenarios": [
+    {
+      "bays": 3,
+      "capex": 120000,
+      "lost_sessions_per_day": 9.0,
+      "served_sessions_per_day": 87.0,
+      "avg_energy_per_session_kwh": 31.7,
+      "annual_gross_margin": 356368,
+      "annual_opex": 6000,
+      "annual_net_cashflow": 350368,
+      "simple_payback_years": 0.35,
+      "irr_pct": 288.6,
+      "discounted_payback_years": 0.37,
+      "npv": 2204157
+    }
+  ]
+}
+```
+
+- irr_pct and simple_payback_years are null when annual net cash flow is not
+  positive.
+- discounted_payback_years is null when the investment never pays back; values
+  above horizon_years are rendered as ">N yrs" by the frontend.
 
 ### GET /api/presets
 

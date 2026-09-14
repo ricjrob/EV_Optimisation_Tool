@@ -122,6 +122,10 @@
                             Requirements</button>
                         <button type="button" class="results-tab" data-tab="distributions">Charging
                             Distributions</button>
+                        <button type="button" class="results-tab" data-tab="investment">Investment
+                            Summary</button>
+                        <button type="button" class="results-tab" data-tab="power-config">Power &
+                            Chargers</button>
                     </div>
 
                     <div id="tab-bay-requirements">
@@ -164,6 +168,128 @@
                         </div>
                     </div>
 
+                    <div id="tab-investment" class="hidden">
+                        <div class="investment-panel">
+                            <h3>Investment Assumptions</h3>
+                            <p class="investment-note">Analysis uses the day selected in the results
+                                day picker above, over a 10-year horizon. Adjust the assumptions and
+                                re-run at any time.</p>
+                            <div class="investment-inputs">
+                                <div class="form-group">
+                                    <label for="inv-cost-per-bay">Cost per Bay (£):</label>
+                                    <input type="number" id="inv-cost-per-bay" min="1" step="1000" value="40000">
+                                </div>
+                                <div class="form-group">
+                                    <label for="inv-margin-kwh">Gross Margin per kWh (£):</label>
+                                    <input type="number" id="inv-margin-kwh" min="0" step="0.01" value="0.35">
+                                </div>
+                                <div class="form-group">
+                                    <label for="inv-discount-rate">Discount Rate (%):</label>
+                                    <input type="number" id="inv-discount-rate" min="0" max="50" step="0.5" value="8">
+                                </div>
+                                <div class="form-group">
+                                    <label for="inv-opex-bay">Opex per Bay / Year (£):</label>
+                                    <input type="number" id="inv-opex-bay" min="0" step="500" value="2000">
+                                </div>
+                            </div>
+                            <button id="run-investment-btn" class="btn btn-primary">Run Investment
+                                Analysis</button>
+                            <div id="investment-error" class="error-message"></div>
+                        </div>
+
+                        <div id="investment-summary" class="investment-summary hidden"></div>
+
+                        <div id="investment-table" class="results-table hidden">
+                            <h3>Bay Count Scenarios</h3>
+                            <div class="table-wrapper">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Bays</th>
+                                            <th>Capex</th>
+                                            <th>Served Sessions / Day</th>
+                                            <th>Lost Sessions / Day</th>
+                                            <th>Annual Margin</th>
+                                            <th>Annual Net Cash Flow</th>
+                                            <th>Simple Payback</th>
+                                            <th>IRR (10 yr)</th>
+                                            <th>Discounted Payback</th>
+                                            <th>NPV (10 yr)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="investment-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div id="investment-charts" class="dist-charts-grid hidden">
+                            <div class="dist-chart-section results-chart">
+                                <h3>IRR vs Number of Bays</h3>
+                                <canvas id="irr-chart-canvas"></canvas>
+                            </div>
+                            <div class="dist-chart-section results-chart">
+                                <h3>Payback Period vs Number of Bays</h3>
+                                <canvas id="payback-chart-canvas"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tab-power-config" class="hidden">
+                        <div class="investment-panel">
+                            <h3>Peak Power Needs per Bay</h3>
+                            <p class="investment-note">Based on vehicle charging profile simulations, these percentiles
+                                show the power per bay needed to satisfy customer charging demands.</p>
+                            <div class="results-summary-grid"
+                                style="grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px;">
+                                <div class="summary-box">
+                                    <h3>90% Customer Needs</h3>
+                                    <div class="summary-value" id="power-p90-val">-</div>
+                                    <small style="opacity: 0.9;">kW / bay</small>
+                                </div>
+                                <div class="summary-box">
+                                    <h3>95% Customer Needs</h3>
+                                    <div class="summary-value" id="power-p95-val">-</div>
+                                    <small style="opacity: 0.9;">kW / bay</small>
+                                </div>
+                                <div class="summary-box">
+                                    <h3>99% Customer Needs</h3>
+                                    <div class="summary-value" id="power-p99-val">-</div>
+                                    <small style="opacity: 0.9;">kW / bay</small>
+                                </div>
+                            </div>
+                            <p class="investment-note" id="power-detail-note"
+                                style="margin-top: 14px; font-weight: 500;">
+                                Single-vehicle peak power percentiles: 90% = - kW, 95% = - kW, 99% = - kW.
+                            </p>
+                        </div>
+
+                        <div class="investment-panel" style="margin-top: 24px;">
+                            <h3>Stage 2: Chargepoint Configuration & Dynamic Load Balancing</h3>
+                            <p class="investment-note">Enter your deployed charger hardware configuration. Power is
+                                dynamically load-balanced across active bays on each charger. Re-running the model
+                                measures power capping, dwell time impact, and longer customer sessions.</p>
+                            <div class="investment-inputs">
+                                <div class="form-group">
+                                    <label for="power-num-chargers">Number of Chargers Deployed:</label>
+                                    <input type="number" id="power-num-chargers" min="1" step="1" value="2">
+                                </div>
+                                <div class="form-group">
+                                    <label for="power-max-kw">Max kW Output per Charger:</label>
+                                    <input type="number" id="power-max-kw" min="10" step="10" value="400">
+                                </div>
+                                <div class="form-group">
+                                    <label for="power-bays-per-charger">Bays Supported per Charger:</label>
+                                    <input type="number" id="power-bays-per-charger" min="1" step="1" value="2">
+                                </div>
+                            </div>
+                            <button id="run-power-sim-btn" class="btn btn-primary">Run Power & Charger
+                                Simulation</button>
+                            <div id="power-sim-error" class="error-message"></div>
+                        </div>
+
+                        <div id="power-sim-results" class="investment-summary hidden" style="margin-top: 24px;"></div>
+                    </div>
+
                     <div id="no-results" class="no-results">
                         <p>Click "Calculate" to see results</p>
                     </div>
@@ -176,7 +302,7 @@
         </footer>
     </div>
 
-    <script src="/static/script.js?v=11"></script>
+    <script src="/static/script.js?v=12"></script>
 </body>
 
 </html>

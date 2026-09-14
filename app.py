@@ -8,9 +8,13 @@ from pydantic import BaseModel
 from src.apiModel import apiModel
 from src.BayResult import BayResult
 from src.DayProfile import DayProfile
+from src.InvestmentCalculator import InvestmentCalculator
+from src.PowerCalculator import PowerCalculator
+from src.PowerResult import ChargerConfig, ChargerSimulationResult, PeakPowerNeeds
 import uvicorn
 
 MAX_SIMULATION_RUNS = 1000
+MAX_INVESTMENT_SCENARIOS = 25
 
 app = FastAPI(title="EV Charging Bay Calculator", version="1.0.0")
 
@@ -33,8 +37,35 @@ class ProfileConfig(BaseModel):
     simulation_runs: int = 1
 
 
+class ChargerConfigInput(BaseModel):
+    num_chargers: int
+    max_kw_per_charger: float
+    bays_per_charger: int
+
+
 class CalculationRequest(BaseModel):
     profile: ProfileConfig
+    charger_config: ChargerConfigInput | None = None
+
+
+class PowerSimulationRequest(BaseModel):
+    profile: ProfileConfig
+    charger_config: ChargerConfigInput
+
+
+class InvestmentConfig(BaseModel):
+    cost_per_bay: float
+    gross_margin_per_kwh: float
+    discount_rate_pct: float = 8.0
+    opex_per_bay: float = 0.0
+    horizon_years: int = 10
+    bay_min: int | None = None
+    bay_max: int | None = None
+
+
+class InvestmentRequest(BaseModel):
+    profile: ProfileConfig
+    investment: InvestmentConfig
 
 
 class BayResultResponse(BaseModel):
@@ -316,6 +347,27 @@ async def calculate(request: CalculationRequest):
 
         selected_result = day_results[active_day]
 
+        peak_bays_eval = max(
+            1,
+            overall_peak_bays
+            if overall_peak_bays > 0
+            else selected_result["peak_bays"],
+        )
+        model.set_calculator(charge_curve_id)
+        peak_power_needs = model.get_peak_power_needs(
+            concurrent_bays=peak_bays_eval
+        ).to_dict()
+
+        charger_simulation_data = None
+        if request.charger_config is not None:
+            c_cfg = ChargerConfig(
+                num_chargers=request.charger_config.num_chargers,
+                max_kw_per_charger=request.charger_config.max_kw_per_charger,
+                bays_per_charger=request.charger_config.bays_per_charger,
+            )
+            sim_res = model.run_power_simulation(c_cfg, simulation_runs=simulation_runs)
+            charger_simulation_data = sim_res.to_dict()
+
         response_data = {
             "results": selected_result["results"],
             "peak_bays": selected_result["peak_bays"],
@@ -328,6 +380,8 @@ async def calculate(request: CalculationRequest):
             "peak_day": peak_day,
             "charge_curve_id": charge_curve_id,
             "simulation_runs": simulation_runs,
+            "peak_power_needs": peak_power_needs,
+            "charger_simulation": charger_simulation_data,
         }
 
         return response_data
@@ -338,6 +392,122 @@ async def calculate(request: CalculationRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Calculation failed: {str(e)}")
+
+
+@app.post("/api/power-simulation")
+async def power_simulation(request: PowerSimulationRequest):
+    """Simulate charger configuration with dynamic load balancing and dwell time impact"""
+    try:
+        active_day, day_inputs, _ = _resolve_profile_distributions(request.profile)
+        charge_curve_id = _resolve_charge_curve_config(request.profile)
+        simulation_runs = _resolve_simulation_runs(request.profile)
+        total_sessions, hourly_dist = day_inputs[active_day]
+
+        model.set_profile(total_sessions, hourly_dist)
+        model.set_calculator(charge_curve_id)
+
+        charger_config = ChargerConfig(
+            num_chargers=request.charger_config.num_chargers,
+            max_kw_per_charger=request.charger_config.max_kw_per_charger,
+            bays_per_charger=request.charger_config.bays_per_charger,
+        )
+
+        sim_result = model.run_power_simulation(
+            charger_config, simulation_runs=simulation_runs
+        )
+        peak_power_needs = model.get_peak_power_needs(
+            concurrent_bays=charger_config.total_bays
+        )
+
+        return {
+            "day": active_day,
+            "total_sessions": total_sessions,
+            "simulation_runs": simulation_runs,
+            "peak_power_needs": peak_power_needs.to_dict(),
+            "charger_simulation": sim_result.to_dict(),
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Power simulation failed: {str(e)}"
+        )
+
+
+# not used in app
+@app.post("/api/investment")
+async def investment_analysis(request: InvestmentRequest):
+    """Estimate IRR, discounted payback and lost sessions for a range of bay counts"""
+    try:
+        active_day, day_inputs, _ = _resolve_profile_distributions(request.profile)
+        simulation_runs = _resolve_simulation_runs(request.profile)
+        total_sessions, hourly_dist = day_inputs[active_day]
+
+        inv = request.investment
+        calculator = InvestmentCalculator(
+            cost_per_bay=inv.cost_per_bay,
+            gross_margin_per_kwh=inv.gross_margin_per_kwh,
+            discount_rate_pct=inv.discount_rate_pct,
+            opex_per_bay=inv.opex_per_bay,
+            horizon_years=inv.horizon_years,
+        )
+
+        profile = DayProfile(hourly_dist, total_sessions)
+
+        if inv.bay_min is not None or inv.bay_max is not None:
+            if inv.bay_min is None or inv.bay_max is None:
+                raise HTTPException(
+                    status_code=400, detail="Provide both bay_min and bay_max"
+                )
+            bay_min, bay_max = inv.bay_min, inv.bay_max
+        else:
+            peak_estimate = calculator.estimate_peak_bays(profile)
+            bay_min, bay_max = max(1, peak_estimate - 2), peak_estimate + 3
+
+        if (
+            bay_min < 1
+            or bay_max < bay_min
+            or (bay_max - bay_min) >= MAX_INVESTMENT_SCENARIOS
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Bay range must satisfy 1 <= bay_min <= bay_max with at most "
+                    f"{MAX_INVESTMENT_SCENARIOS} scenarios"
+                ),
+            )
+
+        scenarios = calculator.simulate_scenarios(
+            profile, list(range(bay_min, bay_max + 1)), simulation_runs
+        )
+
+        return {
+            "day": active_day,
+            "total_sessions": total_sessions,
+            "simulation_runs": simulation_runs,
+            "inputs": {
+                "cost_per_bay": calculator.cost_per_bay,
+                "gross_margin_per_kwh": calculator.gross_margin_per_kwh,
+                "discount_rate_pct": inv.discount_rate_pct,
+                "opex_per_bay": calculator.opex_per_bay,
+                "horizon_years": calculator.horizon_years,
+                "bay_min": bay_min,
+                "bay_max": bay_max,
+            },
+            "scenarios": [scenario.to_dict() for scenario in scenarios],
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Investment analysis failed: {str(e)}"
+        )
 
 
 # not used in app

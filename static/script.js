@@ -36,6 +36,37 @@ const resultsTableTitle = document.getElementById('results-table-title');
 const resultsChartTitle = document.getElementById('results-chart-title');
 const resultsTbody = document.getElementById('results-tbody');
 
+const tabInvestment = document.getElementById('tab-investment');
+const invCostPerBayInput = document.getElementById('inv-cost-per-bay');
+const invMarginKwhInput = document.getElementById('inv-margin-kwh');
+const invDiscountRateInput = document.getElementById('inv-discount-rate');
+const invOpexBayInput = document.getElementById('inv-opex-bay');
+const runInvestmentBtn = document.getElementById('run-investment-btn');
+const investmentError = document.getElementById('investment-error');
+const investmentSummary = document.getElementById('investment-summary');
+const investmentTable = document.getElementById('investment-table');
+const investmentCharts = document.getElementById('investment-charts');
+const investmentTbody = document.getElementById('investment-tbody');
+
+const tabPowerConfig = document.getElementById('tab-power-config');
+const powerP90Val = document.getElementById('power-p90-val');
+const powerP95Val = document.getElementById('power-p95-val');
+const powerP99Val = document.getElementById('power-p99-val');
+const powerDetailNote = document.getElementById('power-detail-note');
+
+const powerNumChargersInput = document.getElementById('power-num-chargers');
+const powerMaxKwInput = document.getElementById('power-max-kw');
+const powerBaysPerChargerInput = document.getElementById('power-bays-per-charger');
+const runPowerSimBtn = document.getElementById('run-power-sim-btn');
+const powerSimError = document.getElementById('power-sim-error');
+const powerSimResults = document.getElementById('power-sim-results');
+
+const gbpFormatter = new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    maximumFractionDigits: 0
+});
+
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -55,7 +86,11 @@ const state = {
     dayValues: initDayValues(),
     resultSet: null,
     selectedResultDay: 'Mon',
-    resultsActiveTab: 'bay-requirements'
+    resultsActiveTab: 'bay-requirements',
+    lastProfileConfig: null,
+    investmentResult: null,
+    peakPowerNeeds: null,
+    powerSimulationResult: null
 };
 
 function initDayValues() {
@@ -463,6 +498,7 @@ async function handleCalculate() {
             simulation_runs: simulationRuns
         }
     };
+    state.lastProfileConfig = requestData.profile;
 
     // Send to API
     try {
@@ -595,6 +631,8 @@ function initDistributionEditor() {
 // Event listeners
 calculateBtn.addEventListener('click', handleCalculate);
 loadExampleBtn.addEventListener('click', loadExample);
+runInvestmentBtn.addEventListener('click', handleInvestmentAnalysis);
+runPowerSimBtn.addEventListener('click', handlePowerSimulation);
 
 document.addEventListener('DOMContentLoaded', () => {
     initDistributionEditor();
@@ -611,10 +649,21 @@ function initResultsTabs() {
             });
             tabBayRequirements.classList.toggle('hidden', state.resultsActiveTab !== 'bay-requirements');
             tabDistributions.classList.toggle('hidden', state.resultsActiveTab !== 'distributions');
+            tabInvestment.classList.toggle('hidden', state.resultsActiveTab !== 'investment');
+            tabPowerConfig.classList.toggle('hidden', state.resultsActiveTab !== 'power-config');
             if (state.resultsActiveTab === 'distributions' && state.resultSet) {
                 const selected = state.resultSet.dayResults[state.selectedResultDay];
                 if (selected) {
                     renderDistributionsPanel(selected.soc_samples || [], selected.duration_samples || []);
+                }
+            }
+            if (state.resultsActiveTab === 'investment' && state.investmentResult) {
+                renderInvestmentResult();
+            }
+            if (state.resultsActiveTab === 'power-config' && state.peakPowerNeeds) {
+                renderPowerNeeds(state.peakPowerNeeds);
+                if (state.powerSimulationResult) {
+                    renderPowerSimulationResult(state.powerSimulationResult);
                 }
             }
         });
@@ -650,6 +699,26 @@ function displayResults(result) {
     resultsSummary.classList.remove('hidden');
     resultsTabs.classList.remove('hidden');
     noResults.classList.add('hidden');
+
+    // New demand profile invalidates any previous investment analysis
+    state.investmentResult = null;
+    investmentSummary.classList.add('hidden');
+    investmentTable.classList.add('hidden');
+    investmentCharts.classList.add('hidden');
+    clearInvestmentError();
+
+    // Store power needs from calculation
+    if (result.peak_power_needs) {
+        state.peakPowerNeeds = result.peak_power_needs;
+        renderPowerNeeds(result.peak_power_needs);
+    }
+    if (result.charger_simulation) {
+        state.powerSimulationResult = result.charger_simulation;
+        renderPowerSimulationResult(result.charger_simulation);
+    } else {
+        state.powerSimulationResult = null;
+        renderPowerSimulationResult(null);
+    }
 
     renderResultsDayPicker();
     renderSelectedDayResults();
@@ -716,6 +785,10 @@ function renderSelectedDayResults() {
 
     if (state.resultsActiveTab === 'distributions') {
         renderDistributionsPanel(selected.soc_samples || [], selected.duration_samples || []);
+    }
+
+    if (state.resultsActiveTab === 'investment' && state.investmentResult) {
+        renderInvestmentResult();
     }
 }
 
@@ -988,6 +1061,353 @@ function renderDistributionsPanel(socSamples, durationSamples) {
     });
 }
 
+// Investment analysis tab
+function showInvestmentError(message) {
+    investmentError.textContent = message;
+    investmentError.classList.add('show');
+}
+
+function clearInvestmentError() {
+    investmentError.classList.remove('show');
+}
+
+function formatPaybackYears(value, horizon) {
+    if (value === null || value === undefined) {
+        return 'Never';
+    }
+    if (value > horizon) {
+        return `>${horizon} yrs`;
+    }
+    return `${value.toFixed(1)} yrs`;
+}
+
+async function handleInvestmentAnalysis() {
+    clearInvestmentError();
+
+    if (!state.lastProfileConfig || !state.resultSet) {
+        showInvestmentError('Run Calculate first to generate a demand profile.');
+        return;
+    }
+
+    const costPerBay = Number(invCostPerBayInput.value);
+    if (!isFinite(costPerBay) || costPerBay <= 0) {
+        showInvestmentError('Cost per bay must be a positive number');
+        return;
+    }
+    const marginKwh = Number(invMarginKwhInput.value);
+    if (!isFinite(marginKwh) || marginKwh < 0) {
+        showInvestmentError('Gross margin per kWh must be zero or positive');
+        return;
+    }
+    const discountRate = Number(invDiscountRateInput.value);
+    if (!isFinite(discountRate) || discountRate < 0 || discountRate > 50) {
+        showInvestmentError('Discount rate must be between 0 and 50%');
+        return;
+    }
+    const opexBay = Number(invOpexBayInput.value);
+    if (!isFinite(opexBay) || opexBay < 0) {
+        showInvestmentError('Opex per bay must be zero or positive');
+        return;
+    }
+
+    // Default range brackets the selected day's peak recommendation and its CI,
+    // covering "one more bay than the CI suggests" and "management adds two".
+    const selected = state.resultSet.dayResults[state.selectedResultDay] || {};
+    const ciLow = typeof selected.peak_bays_ci_low === 'number'
+        ? selected.peak_bays_ci_low
+        : (selected.peak_bays ?? 1);
+    const ciHigh = typeof selected.peak_bays_ci_high === 'number'
+        ? selected.peak_bays_ci_high
+        : (selected.peak_bays ?? 1);
+    const bayMin = Math.max(1, Math.floor(ciLow) - 1);
+    const bayMax = Math.min(bayMin + 11, Math.ceil(ciHigh) + 2);
+
+    // Analyse the day chosen in the results day picker, using the last profile
+    const profile = { ...state.lastProfileConfig };
+    if (profile.hourly_editor) {
+        profile.hourly_editor = { ...profile.hourly_editor, active_day: state.selectedResultDay };
+    }
+    const selectedDayValues = state.dayValues[state.selectedResultDay] || getActiveValues();
+    const selectedDaySum = selectedDayValues.reduce((a, b) => a + b, 0);
+    if (selectedDaySum > 0) {
+        profile.hourly_dist = selectedDayValues.map(v => v / selectedDaySum);
+    }
+
+    const requestData = {
+        profile,
+        investment: {
+            cost_per_bay: costPerBay,
+            gross_margin_per_kwh: marginKwh,
+            discount_rate_pct: discountRate,
+            opex_per_bay: opexBay,
+            horizon_years: 10,
+            bay_min: bayMin,
+            bay_max: bayMax
+        }
+    };
+
+    try {
+        runInvestmentBtn.disabled = true;
+        runInvestmentBtn.textContent = 'Analysing...';
+
+        const response = await fetch('/api/investment', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || error.error || 'Investment analysis failed');
+        }
+
+        state.investmentResult = await response.json();
+        renderInvestmentResult();
+    } catch (error) {
+        showInvestmentError('Investment analysis error: ' + error.message);
+    } finally {
+        runInvestmentBtn.disabled = false;
+        runInvestmentBtn.textContent = 'Run Investment Analysis';
+    }
+}
+
+function renderInvestmentResult() {
+    const result = state.investmentResult;
+    if (!result) {
+        return;
+    }
+
+    const scenarios = result.scenarios || [];
+    const horizon = result.inputs?.horizon_years ?? 10;
+    const selectedDayResult = state.resultSet?.dayResults?.[state.selectedResultDay];
+    const recommendedBays = selectedDayResult ? selectedDayResult.peak_bays : null;
+
+    const avgEnergy = scenarios.length > 0 ? scenarios[0].avg_energy_per_session_kwh : 0;
+    investmentSummary.textContent =
+        `Day analysed: ${result.day} · ${result.total_sessions} sessions/day · ` +
+        `${result.simulation_runs} simulation run(s) · avg ${avgEnergy.toFixed(1)} kWh dispensed per session` +
+        (recommendedBays !== null ? ` · model recommendation: ${recommendedBays} bays (highlighted)` : '');
+    investmentSummary.classList.remove('hidden');
+
+    investmentTbody.innerHTML = '';
+    scenarios.forEach(s => {
+        const tr = document.createElement('tr');
+        if (s.bays === recommendedBays) {
+            tr.classList.add('investment-row-recommended');
+        }
+        tr.innerHTML = `
+            <td><strong>${s.bays}</strong></td>
+            <td>${gbpFormatter.format(s.capex)}</td>
+            <td>${s.served_sessions_per_day.toFixed(1)}</td>
+            <td>${s.lost_sessions_per_day.toFixed(1)}</td>
+            <td>${gbpFormatter.format(s.annual_gross_margin)}</td>
+            <td>${gbpFormatter.format(s.annual_net_cashflow)}</td>
+            <td>${formatPaybackYears(s.simple_payback_years, horizon)}</td>
+            <td>${s.irr_pct === null ? 'n/a' : s.irr_pct.toFixed(1) + '%'}</td>
+            <td>${formatPaybackYears(s.discounted_payback_years, horizon)}</td>
+            <td>${gbpFormatter.format(s.npv)}</td>
+        `;
+        investmentTbody.appendChild(tr);
+    });
+    investmentTable.classList.remove('hidden');
+
+    investmentCharts.classList.remove('hidden');
+    drawInvestmentLineChart('irr-chart-canvas', scenarios, [
+        { key: 'irr_pct', label: 'IRR (%)', color: '#667eea' }
+    ], { yLabel: 'IRR (%)', yFormatter: v => `${v.toFixed(0)}%`, recommendedBays });
+
+    drawInvestmentLineChart('payback-chart-canvas', scenarios, [
+        { key: 'discounted_payback_years', label: 'Discounted payback', color: '#667eea' },
+        { key: 'simple_payback_years', label: 'Simple payback', color: '#f59e0b' }
+    ], { yLabel: 'Years', yFormatter: v => v.toFixed(0), recommendedBays });
+}
+
+// Multi-series line chart for investment scenarios (null values render as gaps)
+function drawInvestmentLineChart(canvasId, scenarios, seriesDefs, options) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || scenarios.length === 0) {
+        return;
+    }
+    const ctx = canvas.getContext('2d');
+
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const width = Math.max(280, rect.width - 32);
+    const height = 280;
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const plot = { top: 40, right: 20, bottom: 52, left: 58 };
+
+    ctx.fillStyle = '#f9f9f9';
+    ctx.fillRect(0, 0, width, height);
+
+    const allValues = [];
+    seriesDefs.forEach(def => {
+        scenarios.forEach(s => {
+            const v = s[def.key];
+            if (typeof v === 'number' && isFinite(v)) {
+                allValues.push(v);
+            }
+        });
+    });
+
+    if (allValues.length === 0) {
+        ctx.fillStyle = '#666';
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('No data for these assumptions', width / 2, height / 2);
+        return;
+    }
+
+    const maxY = Math.max(...allValues);
+    const yLow = Math.min(0, ...allValues);
+    const yHigh = maxY > 0 ? maxY * 1.15 : 1;
+
+    const xValues = scenarios.map(s => s.bays);
+    const xMin = Math.min(...xValues);
+    const xMax = Math.max(...xValues);
+    const plotWidth = width - plot.left - plot.right;
+    const plotHeight = height - plot.top - plot.bottom;
+    const scaleX = xMax > xMin ? plotWidth / (xMax - xMin) : 0;
+    const scaleY = plotHeight / (yHigh - yLow);
+
+    const xPos = bays => xMax > xMin
+        ? plot.left + (bays - xMin) * scaleX
+        : plot.left + plotWidth / 2;
+    const yPos = v => height - plot.bottom - (v - yLow) * scaleY;
+
+    // Gridlines and y-axis labels
+    const yTicks = 5;
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= yTicks; i++) {
+        const v = yLow + (yHigh - yLow) * (i / yTicks);
+        const y = yPos(v);
+        ctx.beginPath();
+        ctx.moveTo(plot.left, y);
+        ctx.lineTo(width - plot.right, y);
+        ctx.stroke();
+        ctx.fillStyle = '#666';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(options.yFormatter(v), plot.left - 6, y);
+    }
+
+    // Recommended bay count marker
+    if (typeof options.recommendedBays === 'number' &&
+        options.recommendedBays >= xMin && options.recommendedBays <= xMax) {
+        const x = xPos(options.recommendedBays);
+        ctx.strokeStyle = '#059669';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, plot.top);
+        ctx.lineTo(x, height - plot.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#059669';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('recommended', x, plot.top - 4);
+    }
+
+    // Series lines and point markers
+    seriesDefs.forEach(def => {
+        ctx.strokeStyle = def.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        let pen = false;
+        scenarios.forEach(s => {
+            const v = s[def.key];
+            if (typeof v !== 'number' || !isFinite(v)) {
+                pen = false;
+                return;
+            }
+            const x = xPos(s.bays);
+            const y = yPos(v);
+            if (pen) {
+                ctx.lineTo(x, y);
+            } else {
+                ctx.moveTo(x, y);
+                pen = true;
+            }
+        });
+        ctx.stroke();
+
+        scenarios.forEach(s => {
+            const v = s[def.key];
+            if (typeof v !== 'number' || !isFinite(v)) {
+                return;
+            }
+            ctx.fillStyle = def.color;
+            ctx.beginPath();
+            ctx.arc(xPos(s.bays), yPos(v), 3, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    });
+
+    // Axes
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(plot.left, plot.top);
+    ctx.lineTo(plot.left, height - plot.bottom);
+    ctx.lineTo(width - plot.right, height - plot.bottom);
+    ctx.stroke();
+
+    // X-axis ticks and label
+    ctx.fillStyle = '#333';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    xValues.forEach(bays => {
+        ctx.fillText(String(bays), xPos(bays), height - plot.bottom + 8);
+    });
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('Number of Bays', width / 2, height - 14);
+
+    // Y-axis label
+    ctx.save();
+    ctx.translate(16, height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(options.yLabel, 0, 0);
+    ctx.restore();
+
+    // Legend (top-right, built right to left)
+    let legendX = width - plot.right;
+    for (let i = seriesDefs.length - 1; i >= 0; i--) {
+        const def = seriesDefs[i];
+        ctx.font = '10px sans-serif';
+        const labelWidth = ctx.measureText(def.label).width;
+        ctx.fillStyle = '#333';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(def.label, legendX, plot.top - 22);
+        legendX -= labelWidth + 8;
+        ctx.strokeStyle = def.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(legendX - 14, plot.top - 22);
+        ctx.lineTo(legendX, plot.top - 22);
+        ctx.stroke();
+        legendX -= 14 + 14;
+    }
+}
+
 // Error/Success messages
 function showError(message) {
     errorMessage.textContent = message;
@@ -1008,4 +1428,146 @@ function clearError() {
     errorMessage.style.background = '';
     errorMessage.style.color = '';
     errorMessage.style.borderColor = '';
+}
+
+// Power & Charger simulation tab
+function showPowerSimError(message) {
+    powerSimError.textContent = message;
+    powerSimError.classList.add('show');
+}
+
+function clearPowerSimError() {
+    powerSimError.classList.remove('show');
+}
+
+async function handlePowerSimulation() {
+    clearPowerSimError();
+
+    if (!state.lastProfileConfig) {
+        showPowerSimError('Please click "Calculate" first to generate the site demand profile');
+        return;
+    }
+
+    const numChargers = parseInt(powerNumChargersInput.value, 10);
+    const maxKw = parseFloat(powerMaxKwInput.value);
+    const baysPerCharger = parseInt(powerBaysPerChargerInput.value, 10);
+
+    if (isNaN(numChargers) || numChargers < 1) {
+        showPowerSimError('Number of chargers must be at least 1');
+        return;
+    }
+    if (isNaN(maxKw) || maxKw <= 0) {
+        showPowerSimError('Max kW output per charger must be a positive number');
+        return;
+    }
+    if (isNaN(baysPerCharger) || baysPerCharger < 1) {
+        showPowerSimError('Bays per charger must be at least 1');
+        return;
+    }
+
+    const profile = { ...state.lastProfileConfig };
+    if (profile.hourly_editor) {
+        profile.hourly_editor = { ...profile.hourly_editor, active_day: state.selectedResultDay };
+    }
+    const selectedDayValues = state.dayValues[state.selectedResultDay] || getActiveValues();
+    const selectedDaySum = selectedDayValues.reduce((a, b) => a + b, 0);
+    if (selectedDaySum > 0) {
+        profile.hourly_dist = selectedDayValues.map(v => v / selectedDaySum);
+    }
+
+    const requestData = {
+        profile,
+        charger_config: {
+            num_chargers: numChargers,
+            max_kw_per_charger: maxKw,
+            bays_per_charger: baysPerCharger
+        }
+    };
+
+    try {
+        runPowerSimBtn.disabled = true;
+        runPowerSimBtn.textContent = 'Simulating...';
+
+        const response = await fetch('/api/power-simulation', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || error.error || 'Power simulation failed');
+        }
+
+        const result = await response.json();
+        state.peakPowerNeeds = result.peak_power_needs;
+        state.powerSimulationResult = result.charger_simulation;
+
+        renderPowerNeeds(result.peak_power_needs);
+        renderPowerSimulationResult(result.charger_simulation);
+    } catch (error) {
+        showPowerSimError('Power simulation error: ' + error.message);
+    } finally {
+        runPowerSimBtn.disabled = false;
+        runPowerSimBtn.textContent = 'Run Power & Charger Simulation';
+    }
+}
+
+function renderPowerNeeds(needs) {
+    if (!needs) return;
+    powerP90Val.textContent = needs.p90_kw.toFixed(1);
+    powerP95Val.textContent = needs.p95_kw.toFixed(1);
+    powerP99Val.textContent = needs.p99_kw.toFixed(1);
+
+    powerDetailNote.textContent =
+        `Values represent peak power per bay evaluating ${needs.concurrent_bays} concurrent bay(s). ` +
+        `Single-vehicle peak power percentiles: 90% = ${needs.single_vehicle_p90_kw.toFixed(1)} kW, ` +
+        `95% = ${needs.single_vehicle_p95_kw.toFixed(1)} kW, 99% = ${needs.single_vehicle_p99_kw.toFixed(1)} kW ` +
+        `(average vehicle peak: ${needs.mean_kw.toFixed(1)} kW).`;
+}
+
+function renderPowerSimulationResult(sim) {
+    if (!sim) {
+        powerSimResults.classList.add('hidden');
+        powerSimResults.innerHTML = '';
+        return;
+    }
+
+    powerSimResults.classList.remove('hidden');
+    powerSimResults.innerHTML = `
+        <div class="results-summary-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+            <div class="summary-box" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                <h3>Sessions Extended</h3>
+                <div class="summary-value" style="font-size: 2.2em;">${sim.delayed_sessions}</div>
+                <small style="opacity: 0.9;">${sim.delayed_sessions_pct}% of total sessions</small>
+            </div>
+            <div class="summary-box summary-box-muted">
+                <h3>Avg Dwell Time</h3>
+                <div class="summary-value" style="font-size: 2em;">${sim.avg_constrained_dwell_min.toFixed(1)}m</div>
+                <small style="opacity: 0.9;">vs ${sim.avg_unconstrained_dwell_min.toFixed(1)}m baseline</small>
+            </div>
+            <div class="summary-box summary-box-muted">
+                <h3>Avg Dwell Extension</h3>
+                <div class="summary-value" style="font-size: 2em;">+${sim.avg_dwell_extension_min.toFixed(1)}m</div>
+                <small style="opacity: 0.9;">(+${sim.avg_extension_for_delayed_min.toFixed(1)}m for extended)</small>
+            </div>
+            <div class="summary-box summary-box-muted">
+                <h3>Max Dwell Extension</h3>
+                <div class="summary-value" style="font-size: 2em;">+${sim.max_dwell_extension_min.toFixed(1)}m</div>
+                <small style="opacity: 0.9;">longest session delay</small>
+            </div>
+        </div>
+
+        <div style="margin-top: 20px; background: #fff; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0;">
+            <h4 style="font-size: 1.1em; color: #1e293b; margin-bottom: 12px; font-weight: 600;">Hardware & Load Balancing Summary</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; font-size: 0.95em; color: #334155;">
+                <div><strong>Deployed Hardware:</strong> ${sim.num_chargers} × ${sim.max_kw_per_charger} kW chargers (${sim.bays_per_charger} bays/charger = ${sim.total_bays} total bays)</div>
+                <div><strong>Power-Capped Operating Time:</strong> ${sim.power_capped_minutes.toFixed(1)} mins/day</div>
+                <div><strong>Peak Site Power Drawn:</strong> ${sim.peak_power_kw.toFixed(1)} kW</div>
+                <div><strong>Total Energy Delivered:</strong> ${sim.total_energy_kwh.toFixed(1)} kWh/day</div>
+            </div>
+        </div>
+    `;
 }

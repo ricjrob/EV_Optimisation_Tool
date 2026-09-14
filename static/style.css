@@ -732,6 +732,54 @@ footer {
     }
 }
 
+/* Investment tab */
+.investment-panel {
+    margin-bottom: 20px;
+    padding: 20px;
+    background: #f9f9f9;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.investment-panel h3 {
+    font-size: 1.1em;
+    color: #333;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.investment-note {
+    font-size: 0.85em;
+    color: #666;
+    margin-bottom: 16px;
+}
+
+.investment-inputs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.investment-summary {
+    padding: 12px 16px;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.08));
+    border: 1px solid rgba(102, 126, 234, 0.25);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 0.9em;
+    color: #333;
+}
+
+.investment-row-recommended td {
+    background: #eaf6ee;
+    font-weight: 600;
+}
+
+.investment-row-recommended td:first-child {
+    border-left: 3px solid #059669;
+}
+
 @keyframes slideDown {
     from {
         opacity: 0;

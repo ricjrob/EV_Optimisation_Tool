@@ -90,12 +90,13 @@ class BayCalculator:
         fraction = low_soc_factor * taper_factor
         return self._clip(fraction, min_fraction, 1.0)
 
-    def _simulate_soc_duration_minutes(
+    def _simulate_soc_session(
         self,
         curve: dict,
         initial_soc: float,
         target_soc: float,
-    ) -> float:
+    ) -> tuple[float, float]:
+        """Simulate one session; returns (duration_minutes, energy_kwh_delivered)."""
         battery_kwh = self._sample_battery_kwh(curve)
         peak_kw = self._sample_peak_kw(curve, battery_kwh)
         efficiency = max(0.75, min(0.99, curve["efficiency"]))
@@ -104,6 +105,7 @@ class BayCalculator:
         target = self._clip(target_soc, soc + 1e-4, 0.995)
         step_soc = 0.01
         total_hours = 0.0
+        total_energy_kwh = 0.0
 
         while soc < target:
             next_soc = min(target, soc + step_soc)
@@ -112,11 +114,32 @@ class BayCalculator:
             power_kw = max(0.1, peak_kw * power_fraction)
             energy_kwh = battery_kwh * (next_soc - soc)
             total_hours += energy_kwh / (power_kw * efficiency)
+            total_energy_kwh += energy_kwh
             soc = next_soc
 
         scaled_minutes = total_hours * 60.0 * curve["duration_scale"]
         duration_jitter = max(0.65, random.gauss(1.0, curve["duration_jitter"]))
-        return max(4.0, scaled_minutes * duration_jitter)
+        return max(4.0, scaled_minutes * duration_jitter), total_energy_kwh
+
+    def _simulate_soc_duration_minutes(
+        self,
+        curve: dict,
+        initial_soc: float,
+        target_soc: float,
+    ) -> float:
+        minutes, _ = self._simulate_soc_session(curve, initial_soc, target_soc)
+        return minutes
+
+    def sample_session(self) -> tuple[float, float]:
+        """Public sampler used by investment analysis.
+
+        Returns (total_occupancy_minutes_incl_buffer, energy_kwh_delivered)
+        for a single DC fast-charge session.
+        """
+        curve = self.CURVE_PRESETS["dc_fast"]
+        initial_soc, target_soc = self._draw_soc_pair_for_curve("dc_fast")
+        minutes, energy_kwh = self._simulate_soc_session(curve, initial_soc, target_soc)
+        return minutes + self._draw_buffer_minutes(), energy_kwh
 
     def _sample_empirical_curve_duration_minutes(self, curve_id: str) -> float:
         curve = self.CURVE_PRESETS.get(curve_id)
