@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass  # noqa: N999
 
 
 @dataclass(frozen=True)

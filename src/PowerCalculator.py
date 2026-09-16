@@ -1,7 +1,6 @@
 import math
 import random
 import statistics
-from typing import ClassVar
 
 from .BayCalculator import BayCalculator
 from .DayProfile import DayProfile
@@ -30,13 +29,12 @@ class PowerCalculator:
         num_samples: int = 10000,
     ) -> PeakPowerNeeds:
         calc = calculator or BayCalculator()
-        curve = calc.CURVE_PRESETS["dc_fast"]
         bays = max(1, int(concurrent_bays))
 
-        # Sample single vehicle peak power requirements
+        # Sample realistic instantaneous single-vehicle power draws, weighted by
+        # time spent at each SOC, rather than each vehicle's theoretical peak_kw.
         single_powers = [
-            calc._sample_peak_kw(curve, calc._sample_battery_kwh(curve))
-            for _ in range(num_samples)
+            calc.sample_instantaneous_power_kw() for _ in range(num_samples)
         ]
         single_p90 = _percentile(single_powers, 90.0)
         single_p95 = _percentile(single_powers, 95.0)
@@ -50,8 +48,7 @@ class PowerCalculator:
             concurrent_per_bay_powers = []
             for _ in range(num_samples):
                 group_sum = sum(
-                    calc._sample_peak_kw(curve, calc._sample_battery_kwh(curve))
-                    for _ in range(bays)
+                    calc.sample_instantaneous_power_kw() for _ in range(bays)
                 )
                 concurrent_per_bay_powers.append(group_sum / bays)
 
@@ -156,7 +153,12 @@ class PowerCalculator:
                 buffer_min = calc._draw_buffer_minutes()
 
                 unconstrained_charge_min, energy_kwh = calc._simulate_soc_session(
-                    curve, initial_soc, target_soc
+                    curve,
+                    initial_soc,
+                    target_soc,
+                    battery_kwh=battery_kwh,
+                    peak_kw=peak_kw,
+                    apply_jitter=False,
                 )
                 unconstrained_total_dwell = unconstrained_charge_min + buffer_min
 
@@ -223,14 +225,29 @@ class PowerCalculator:
                 queue.append(next_arrival_idx)
                 next_arrival_idx += 1
 
-            # 2. Assign queued sessions to free bays
-            for b in range(total_bays):
-                if bay_occupant[b] is None and queue:
+            # 2. Assign queued sessions to free bays, preferring idle chargers
+            # first so vehicles avoid doubling up on an already-occupied
+            # charger's second socket while other chargers sit empty.
+            if queue:
+                charger_occupancy = [0] * num_chargers
+                for b in range(total_bays):
+                    if bay_occupant[b] is not None:
+                        charger_occupancy[b // bays_per_charger] += 1
+
+                free_bays = [b for b in range(total_bays) if bay_occupant[b] is None]
+                free_bays.sort(
+                    key=lambda b: (charger_occupancy[b // bays_per_charger], b)
+                )
+
+                for b in free_bays:
+                    if not queue:
+                        break
                     s_idx = queue.pop(0)
                     bay_occupant[b] = s_idx
                     s = sessions_data[s_idx]
                     s["start_charge_min"] = current_time
                     s["status"] = "charging"
+                    charger_occupancy[b // bays_per_charger] += 1
 
             # 3. Calculate power requests per charger and apply dynamic load balancing
             site_power = 0.0
@@ -319,7 +336,7 @@ class PowerCalculator:
             extensions.append(ext)
             total_energy += s["energy_kwh"]
 
-            if ext > 0.1:  # delayed by > 6 seconds
+            if ext > dt:  # beyond one sim timestep of quantization noise
                 delayed_count += 1
                 delayed_extensions.append(ext)
 

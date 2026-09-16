@@ -74,6 +74,53 @@ class BayCalculator:
         )
         return self._clip(peak_kw, curve["peak_kw_min"], curve["peak_kw_max"])
 
+    def _sample_time_weighted_power_kw(self, curve: dict) -> float:
+        """Sample a vehicle's actual instantaneous draw (kW) at a random moment
+        during its charging session, weighted by how long it spends at each SOC.
+
+        A vehicle's real-time power depends on where it is in the SOC taper, not
+        its theoretical peak_kw. Sampling proportionally to time-in-state means a
+        fleet snapshot correctly reflects that most plugged-in vehicles are
+        tapering rather than all drawing their maximum simultaneously.
+        """
+        battery_kwh = self._sample_battery_kwh(curve)
+        peak_kw = self._sample_peak_kw(curve, battery_kwh)
+        initial_soc, target_soc = self._draw_soc_pair_for_curve("dc_fast")
+        efficiency = max(0.75, min(0.99, curve["efficiency"]))
+
+        soc = self._clip(initial_soc, 0.0, 0.99)
+        target = self._clip(target_soc, soc + 1e-4, 0.995)
+        step_soc = 0.01
+
+        durations_hours = []
+        powers_kw = []
+        while soc < target:
+            next_soc = min(target, soc + step_soc)
+            mean_soc = 0.5 * (soc + next_soc)
+            power_fraction = self._power_fraction_at_soc(curve, mean_soc)
+            power_kw = max(0.1, peak_kw * power_fraction)
+            energy_kwh = battery_kwh * (next_soc - soc)
+            durations_hours.append(energy_kwh / (power_kw * efficiency))
+            powers_kw.append(power_kw)
+            soc = next_soc
+
+        total_duration = sum(durations_hours)
+        if total_duration <= 0:
+            return peak_kw
+
+        pick = random.random() * total_duration
+        cumulative = 0.0
+        for duration, power_kw in zip(durations_hours, powers_kw):
+            cumulative += duration
+            if pick <= cumulative:
+                return power_kw
+        return powers_kw[-1]
+
+    def sample_instantaneous_power_kw(self, curve_id: str = "dc_fast") -> float:
+        """Public sampler for a single vehicle's realistic instantaneous power draw."""
+        curve = self.CURVE_PRESETS.get(curve_id, self.CURVE_PRESETS["dc_fast"])
+        return self._sample_time_weighted_power_kw(curve)
+
     def _power_fraction_at_soc(self, curve: dict, soc: float) -> float:
         # Low SOC behavior ramps quickly to a plateau rather than linearly.
         low_soc_floor = curve["low_soc_floor"]
@@ -95,10 +142,22 @@ class BayCalculator:
         curve: dict,
         initial_soc: float,
         target_soc: float,
+        battery_kwh: float | None = None,
+        peak_kw: float | None = None,
+        apply_jitter: bool = True,
     ) -> tuple[float, float]:
-        """Simulate one session; returns (duration_minutes, energy_kwh_delivered)."""
-        battery_kwh = self._sample_battery_kwh(curve)
-        peak_kw = self._sample_peak_kw(curve, battery_kwh)
+        """Simulate one session; returns (duration_minutes, energy_kwh_delivered).
+
+        battery_kwh/peak_kw can be supplied so a baseline (unconstrained) run
+        matches the exact vehicle used elsewhere for the same session, rather
+        than an independently re-sampled vehicle. apply_jitter=False yields a
+        pure physics-based duration comparable to a per-timestep simulation
+        that has no random human-factor jitter of its own.
+        """
+        if battery_kwh is None:
+            battery_kwh = self._sample_battery_kwh(curve)
+        if peak_kw is None:
+            peak_kw = self._sample_peak_kw(curve, battery_kwh)
         efficiency = max(0.75, min(0.99, curve["efficiency"]))
 
         soc = self._clip(initial_soc, 0.0, 0.99)
@@ -118,7 +177,11 @@ class BayCalculator:
             soc = next_soc
 
         scaled_minutes = total_hours * 60.0 * curve["duration_scale"]
-        duration_jitter = max(0.65, random.gauss(1.0, curve["duration_jitter"]))
+        duration_jitter = (
+            max(0.65, random.gauss(1.0, curve["duration_jitter"]))
+            if apply_jitter
+            else 1.0
+        )
         return max(4.0, scaled_minutes * duration_jitter), total_energy_kwh
 
     def _simulate_soc_duration_minutes(
