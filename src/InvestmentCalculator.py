@@ -27,6 +27,7 @@ class InvestmentCalculator:
         discount_rate_pct: float = 8.0,
         opex_per_bay: float = 0.0,
         horizon_years: int = 10,
+        curve_preset: dict[str, float] | None = None,
     ):
         if cost_per_bay <= 0:
             raise ValueError("Cost per bay must be positive")
@@ -44,6 +45,7 @@ class InvestmentCalculator:
         self.discount_rate = float(discount_rate_pct) / 100.0
         self.opex_per_bay = float(opex_per_bay)
         self.horizon_years = int(horizon_years)
+        self.curve_preset = curve_preset
 
     # ------------------------------------------------------------------
     # Simulation
@@ -54,7 +56,7 @@ class InvestmentCalculator:
         bay_counts: list[int],
         simulation_runs: int = 25,
     ) -> list[InvestmentScenario]:
-        calculator = BayCalculator()
+        calculator = BayCalculator(curve_preset=self.curve_preset)
         runs = max(1, int(simulation_runs))
         return [
             self._evaluate_bays(profile, bays, runs, calculator) for bays in bay_counts
@@ -65,7 +67,7 @@ class InvestmentCalculator:
         total = profile.get_total_sessions_per_day()
         dist = profile.get_day_profile()
         peak_sessions = max(p * total for p in dist)
-        calculator = BayCalculator()
+        calculator = BayCalculator(curve_preset=self.curve_preset)
         samples = [calculator.sample_session()[0] for _ in range(150)]
         mean_minutes = statistics.mean(samples) if samples else 30.0
         return max(1, math.ceil(peak_sessions * mean_minutes / MINUTES_PER_HOUR))

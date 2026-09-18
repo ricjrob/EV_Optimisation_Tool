@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EV Charging Bay Calculator</title>
-    <link rel="stylesheet" href="/static/style.css?v=4">
+    <link rel="stylesheet" href="/static/style.css?v=6">
 </head>
 
 <body>
@@ -20,72 +20,93 @@
                 <!-- Input Panel -->
                 <section class="input-panel">
                     <h2>Configuration</h2>
-
-                    <div class="form-section">
-                        <h3>Charging Profile</h3>
-
-                        <div id="total-sessions-group" class="form-group hidden">
-                            <label for="total-sessions">Total Daily Sessions:</label>
-                            <input type="number" id="total-sessions" min="1" value="100" placeholder="e.g., 100">
-                            <small>Used in Proportion mode to convert hourly percentages into sessions</small>
-                        </div>
-
-                        <div id="simulation-runs-group" class="form-group">
-                            <label for="simulation-runs">Monte Carlo Simulation Runs:</label>
-                            <input type="number" id="simulation-runs" min="1" max="1000" step="1" value="1"
-                                placeholder="e.g., 100">
-                            <small>Number of simulated days to run (whole number, max 1000). Results show the median
-                                with a 95% confidence interval around the mean.</small>
-                        </div>
+                    <div class="configuration-tabs" role="tablist" aria-label="Configuration sections">
+                        <button type="button" class="configuration-tab active" data-config-tab="demand">Demand
+                            Profile</button>
+                        <button type="button" class="configuration-tab" data-config-tab="curve">Charging Curve</button>
                     </div>
 
-                    <div class="form-section">
-                        <div id="distribution-editor" class="distribution-editor">
-                            <div class="distribution-header-row">
-                                <div>
-                                    <h3>Hourly distribution</h3>
-                                    <p class="distribution-subtitle">Drag bars or edit numbers for each hour</p>
-                                </div>
-                                <div class="mode-toggle" role="tablist" aria-label="Distribution mode">
-                                    <button type="button" id="mode-sessions" class="mode-btn active">Sessions</button>
-                                    <button type="button" id="mode-proportion" class="mode-btn">Proportion (%)</button>
-                                </div>
+                    <div id="config-tab-demand">
+                        <div class="form-section">
+                            <h3>Charging Profile</h3>
+
+                            <div id="total-sessions-group" class="form-group hidden">
+                                <label for="total-sessions">Total Daily Sessions:</label>
+                                <input type="number" id="total-sessions" min="1" value="100" placeholder="e.g., 100">
+                                <small>Used in Proportion mode to convert hourly percentages into sessions</small>
                             </div>
 
-                            <div class="distribution-days-row">
-                                <div id="day-tabs" class="day-tabs"></div>
-                            </div>
-
-                            <div class="distribution-controls-row">
-                                <div class="copy-controls">
-                                    <span>Copy from</span>
-                                    <select id="copy-from-day">
-                                        <option value="">choose day...</option>
-                                    </select>
-                                    <button type="button" id="compare-toggle" class="chip-btn">Compare</button>
-                                    <select id="compare-day" class="hidden"></select>
-                                </div>
-                                <button type="button" id="linked-toggle" class="linked-btn">Same every day</button>
-                            </div>
-
-                            <div class="preset-row">
-                                <button type="button" class="chip-btn" data-preset="office">9-to-5</button>
-                                <button type="button" class="chip-btn" data-preset="retail">Retail</button>
-                                <button type="button" class="chip-btn" data-preset="overnight">Overnight</button>
-                                <button type="button" id="reset-distribution" class="chip-btn">Reset</button>
-                                <button type="button" id="normalize-btn" class="chip-btn primary hidden">Normalize to
-                                    100%</button>
-                            </div>
-
-                            <div id="bars-track" class="bars-track"></div>
-                            <div id="hour-labels" class="hour-labels"></div>
-                            <div id="hour-grid" class="hour-grid"></div>
-
-                            <div class="distribution-footer">
-                                <span id="dist-total-label">Total sessions</span>
-                                <span id="dist-sum">0 sessions</span>
+                            <div id="simulation-runs-group" class="form-group">
+                                <label for="simulation-runs">Monte Carlo Simulation Runs:</label>
+                                <input type="number" id="simulation-runs" min="1" max="1000" step="1" value="1"
+                                    placeholder="e.g., 100">
+                                <small>Number of simulated days to run (whole number, max 1000). Results show the median
+                                    with a 95% confidence interval around the mean.</small>
                             </div>
                         </div>
+
+                        <div class="form-section">
+                            <div id="distribution-editor" class="distribution-editor">
+                                <div class="distribution-header-row">
+                                    <div>
+                                        <h3>Hourly distribution</h3>
+                                        <p class="distribution-subtitle">Drag bars or edit numbers for each hour</p>
+                                    </div>
+                                    <div class="mode-toggle" role="tablist" aria-label="Distribution mode">
+                                        <button type="button" id="mode-sessions"
+                                            class="mode-btn active">Sessions</button>
+                                        <button type="button" id="mode-proportion" class="mode-btn">Proportion
+                                            (%)</button>
+                                    </div>
+                                </div>
+
+                                <div class="distribution-days-row">
+                                    <div id="day-tabs" class="day-tabs"></div>
+                                </div>
+
+                                <div class="distribution-controls-row">
+                                    <div class="copy-controls">
+                                        <span>Copy from</span>
+                                        <select id="copy-from-day">
+                                            <option value="">choose day...</option>
+                                        </select>
+                                        <button type="button" id="compare-toggle" class="chip-btn">Compare</button>
+                                        <select id="compare-day" class="hidden"></select>
+                                    </div>
+                                    <button type="button" id="linked-toggle" class="linked-btn">Same every day</button>
+                                </div>
+
+                                <div class="preset-row">
+                                    <button type="button" class="chip-btn" data-preset="office">9-to-5</button>
+                                    <button type="button" class="chip-btn" data-preset="retail">Retail</button>
+                                    <button type="button" class="chip-btn" data-preset="overnight">Overnight</button>
+                                    <button type="button" id="reset-distribution" class="chip-btn">Reset</button>
+                                    <button type="button" id="normalize-btn" class="chip-btn primary hidden">Normalize
+                                        to
+                                        100%</button>
+                                </div>
+
+                                <div id="bars-track" class="bars-track"></div>
+                                <div id="hour-labels" class="hour-labels"></div>
+                                <div id="hour-grid" class="hour-grid"></div>
+
+                                <div class="distribution-footer">
+                                    <span id="dist-total-label">Total sessions</span>
+                                    <span id="dist-sum">0 sessions</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div id="config-tab-curve" class="hidden">
+                        <div class="curve-editor-header">
+                            <h3>DC Fast Charging Curve</h3>
+                            <p>These values define the vehicle and charging behaviour used in every simulation.</p>
+                        </div>
+                        <div id="curve-parameter-grid" class="curve-parameter-grid"></div>
+                        <button type="button" id="reset-curve-preset" class="btn btn-secondary curve-reset-btn">Reset
+                            Curve Defaults</button>
                     </div>
 
                     <div class="button-group">
@@ -177,11 +198,11 @@
                             <div class="investment-inputs">
                                 <div class="form-group">
                                     <label for="inv-cost-per-bay">Cost per Bay (£):</label>
-                                    <input type="number" id="inv-cost-per-bay" min="1" step="1000" value="40000">
+                                    <input type="number" id="inv-cost-per-bay" min="1" step="1000" value="70000">
                                 </div>
                                 <div class="form-group">
                                     <label for="inv-margin-kwh">Gross Margin per kWh (£):</label>
-                                    <input type="number" id="inv-margin-kwh" min="0" step="0.01" value="0.35">
+                                    <input type="number" id="inv-margin-kwh" min="0" step="0.01" value="0.26">
                                 </div>
                                 <div class="form-group">
                                     <label for="inv-discount-rate">Discount Rate (%):</label>
@@ -302,7 +323,7 @@
         </footer>
     </div>
 
-    <script src="/static/script.js?v=12"></script>
+    <script src="/static/script.js?v=13"></script>
 </body>
 
 </html>

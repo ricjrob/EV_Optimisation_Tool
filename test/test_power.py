@@ -29,6 +29,13 @@ class PowerNeedsTests(unittest.TestCase):
         self.assertEqual(power_needs.concurrent_bays, 4)
         self.assertGreater(power_needs.mean_kw, 0)
 
+    def test_curve_preset_override_is_applied_without_mutating_defaults(self):
+        calculator = BayCalculator(curve_preset={"peak_kw_max": 180.0})
+
+        self.assertEqual(calculator.curve_preset["peak_kw_max"], 180.0)
+        self.assertEqual(calculator.curve_preset["battery_kwh_mean"], 72.0)
+        self.assertEqual(BayCalculator.CURVE_PRESETS["dc_fast"]["peak_kw_max"], 340.0)
+
 
 class ChargerSimulationTests(unittest.TestCase):
     def setUp(self):

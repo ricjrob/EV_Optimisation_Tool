@@ -14,11 +14,11 @@ class BayCalculator:
             "battery_kwh_std": 16.0,
             "battery_kwh_min": 35.0,
             "battery_kwh_max": 130.0,
-            "peak_kw_intercept": -8.0,
-            "peak_kw_slope": 2.75,
-            "peak_kw_std": 24.0,
+            "peak_kw_intercept": -30.0,
+            "peak_kw_slope": 2.2,
+            "peak_kw_std": 60.0,
             "peak_kw_min": 45.0,
-            "peak_kw_max": 360.0,
+            "peak_kw_max": 340.0,
             "low_soc_floor": 0.70,
             "low_soc_tau": 0.040,
             "taper_mid_soc": 0.64,
@@ -35,11 +35,48 @@ class BayCalculator:
         buffer_mean_minutes: float = 4.0,
         buffer_stddev_minutes: float = 1.0,
         charge_curve_id: str | None = None,
+        curve_preset: dict[str, float] | None = None,
     ):
         self.buffer_mean_minutes = buffer_mean_minutes
         self.buffer_stddev_minutes = buffer_stddev_minutes
         # Model is now DC-only. Keep incoming parameter for backward compatibility.
         self.charge_curve_id = "dc_fast"
+        self.curve_preset = self._build_curve_preset(curve_preset)
+
+    def _build_curve_preset(self, overrides: dict[str, float] | None) -> dict:
+        curve = self.CURVE_PRESETS["dc_fast"].copy()
+        if overrides:
+            unknown_keys = set(overrides) - set(curve)
+            if unknown_keys:
+                raise ValueError(
+                    f"Unknown curve preset parameters: {sorted(unknown_keys)}"
+                )
+            curve.update(overrides)
+
+        if any(
+            not isinstance(value, (int, float)) or not math.isfinite(value)
+            for value in curve.values()
+            if not isinstance(value, str)
+        ):
+            raise ValueError("Curve preset values must be finite numbers")
+        if (
+            curve["battery_kwh_min"] <= 0
+            or curve["battery_kwh_max"] < curve["battery_kwh_min"]
+        ):
+            raise ValueError("Battery capacity bounds must be positive and ordered")
+        if curve["peak_kw_min"] <= 0 or curve["peak_kw_max"] < curve["peak_kw_min"]:
+            raise ValueError("Peak power bounds must be positive and ordered")
+        if curve["low_soc_tau"] <= 0 or curve["taper_width"] <= 0:
+            raise ValueError("SOC curve widths must be positive")
+        if not 0 < curve["efficiency"] <= 1:
+            raise ValueError("Efficiency must be greater than 0 and at most 1")
+        if curve["duration_scale"] <= 0 or curve["duration_jitter"] < 0:
+            raise ValueError(
+                "Duration scale must be positive and jitter cannot be negative"
+            )
+        if not 0 <= curve["min_power_fraction"] <= 1:
+            raise ValueError("Minimum power fraction must be between 0 and 1")
+        return curve
 
     def _draw_buffer_minutes(self) -> float:
         buffer_minutes = random.gauss(
@@ -118,8 +155,7 @@ class BayCalculator:
 
     def sample_instantaneous_power_kw(self, curve_id: str = "dc_fast") -> float:
         """Public sampler for a single vehicle's realistic instantaneous power draw."""
-        curve = self.CURVE_PRESETS.get(curve_id, self.CURVE_PRESETS["dc_fast"])
-        return self._sample_time_weighted_power_kw(curve)
+        return self._sample_time_weighted_power_kw(self.curve_preset)
 
     def _power_fraction_at_soc(self, curve: dict, soc: float) -> float:
         # Low SOC behavior ramps quickly to a plateau rather than linearly.
@@ -199,15 +235,15 @@ class BayCalculator:
         Returns (total_occupancy_minutes_incl_buffer, energy_kwh_delivered)
         for a single DC fast-charge session.
         """
-        curve = self.CURVE_PRESETS["dc_fast"]
+        curve = self.curve_preset
         initial_soc, target_soc = self._draw_soc_pair_for_curve("dc_fast")
         minutes, energy_kwh = self._simulate_soc_session(curve, initial_soc, target_soc)
         return minutes + self._draw_buffer_minutes(), energy_kwh
 
     def _sample_empirical_curve_duration_minutes(self, curve_id: str) -> float:
-        curve = self.CURVE_PRESETS.get(curve_id)
-        if curve is None:
+        if curve_id != "dc_fast":
             return self._draw_buffer_minutes()
+        curve = self.curve_preset
 
         initial_soc, target_soc = self._draw_soc_pair_for_curve(curve_id)
         minutes = self._simulate_soc_duration_minutes(curve, initial_soc, target_soc)
@@ -215,9 +251,9 @@ class BayCalculator:
 
     def _sample_with_soc(self, curve_id: str) -> tuple[float, float]:
         """Returns (duration_minutes, arrival_soc)."""
-        curve = self.CURVE_PRESETS.get(curve_id)
-        if curve is None:
+        if curve_id != "dc_fast":
             return self._draw_buffer_minutes(), 0.5
+        curve = self.curve_preset
         initial_soc, target_soc = self._draw_soc_pair_for_curve(curve_id)
         minutes = self._simulate_soc_duration_minutes(curve, initial_soc, target_soc)
         return minutes + self._draw_buffer_minutes(), initial_soc

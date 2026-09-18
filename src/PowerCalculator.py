@@ -245,7 +245,9 @@ class PowerCalculator:
                     s_idx = queue.pop(0)
                     bay_occupant[b] = s_idx
                     s = sessions_data[s_idx]
-                    s["start_charge_min"] = current_time
+                    # A bay was free, so the vehicle starts at its true arrival
+                    # time rather than being snapped forward to this grid tick.
+                    s["start_charge_min"] = max(s["arrival_min"], current_time - dt)
                     s["status"] = "charging"
                     charger_occupancy[b // bays_per_charger] += 1
 
@@ -284,10 +286,20 @@ class PowerCalculator:
                     s = sessions_data[s_idx]
                     efficiency = max(0.75, min(0.99, s["efficiency"]))
                     energy_added = p_alloc * efficiency * (dt / 60.0)
-                    s["current_soc"] += energy_added / s["battery_kwh"]
+                    soc_before = s["current_soc"]
+                    s["current_soc"] = soc_before + energy_added / s["battery_kwh"]
 
                     if s["current_soc"] >= s["target_soc"]:
-                        s["finish_charge_min"] = current_time + dt
+                        # Interpolate the exact crossing time within this step
+                        # instead of snapping to the grid, which would
+                        # otherwise add a systematic upward bias to dwell time.
+                        soc_gain = s["current_soc"] - soc_before
+                        if soc_gain > 1e-9:
+                            frac = (s["target_soc"] - soc_before) / soc_gain
+                            frac = min(1.0, max(0.0, frac))
+                        else:
+                            frac = 1.0
+                        s["finish_charge_min"] = current_time + frac * dt
                         s["status"] = "buffer"
 
             if any_charger_capped:
@@ -302,9 +314,11 @@ class PowerCalculator:
                 if s_idx is not None:
                     s = sessions_data[s_idx]
                     if s["status"] == "buffer":
-                        time_in_buffer = current_time + dt - s["finish_charge_min"]
-                        if time_in_buffer >= s["buffer_min"]:
-                            s["departure_min"] = current_time + dt
+                        # Exact departure time, not snapped to the grid, so
+                        # the buffer stage doesn't add quantization bias.
+                        exact_departure = s["finish_charge_min"] + s["buffer_min"]
+                        if current_time + dt >= exact_departure:
+                            s["departure_min"] = exact_departure
                             s["status"] = "finished"
                             bay_occupant[b] = None
 

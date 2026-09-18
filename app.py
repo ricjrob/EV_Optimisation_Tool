@@ -34,6 +34,7 @@ class ProfileConfig(BaseModel):
     hourly_dist: list[float] | None = None
     hourly_editor: HourlyEditorConfig | None = None
     charge_curve_id: str = "dc_fast"
+    curve_preset: dict[str, float] | None = None
     simulation_runs: int = 1
 
 
@@ -239,6 +240,17 @@ def _resolve_charge_curve_config(
     return curve_id
 
 
+def _resolve_curve_preset(profile: ProfileConfig) -> dict[str, float] | None:
+    if profile.curve_preset is None:
+        return None
+    try:
+        return {key: float(value) for key, value in profile.curve_preset.items()}
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400, detail="Curve preset values must be numbers"
+        )
+
+
 def _resolve_simulation_runs(profile: ProfileConfig) -> int:
     runs = int(round(profile.simulation_runs))
     return max(1, min(MAX_SIMULATION_RUNS, runs))
@@ -323,6 +335,7 @@ async def calculate(request: CalculationRequest):
             request.profile
         )
         charge_curve_id = _resolve_charge_curve_config(request.profile)
+        curve_preset = _resolve_curve_preset(request.profile)
         simulation_runs = _resolve_simulation_runs(request.profile)
 
         day_results = {}
@@ -334,7 +347,7 @@ async def calculate(request: CalculationRequest):
 
             model.set_profile(total_sessions, hourly_dist)
             model.profile.set_total_sessions(total_sessions)
-            model.set_calculator(charge_curve_id)
+            model.set_calculator(charge_curve_id, curve_preset)
 
             runs = [model.run() for _ in range(simulation_runs)]
             payload = _aggregate_day_result(runs, total_sessions, hourly_dist)
@@ -353,7 +366,7 @@ async def calculate(request: CalculationRequest):
             if overall_peak_bays > 0
             else selected_result["peak_bays"],
         )
-        model.set_calculator(charge_curve_id)
+        model.set_calculator(charge_curve_id, curve_preset)
         peak_power_needs = model.get_peak_power_needs(
             concurrent_bays=peak_bays_eval
         ).to_dict()
@@ -400,11 +413,12 @@ async def power_simulation(request: PowerSimulationRequest):
     try:
         active_day, day_inputs, _ = _resolve_profile_distributions(request.profile)
         charge_curve_id = _resolve_charge_curve_config(request.profile)
+        curve_preset = _resolve_curve_preset(request.profile)
         simulation_runs = _resolve_simulation_runs(request.profile)
         total_sessions, hourly_dist = day_inputs[active_day]
 
         model.set_profile(total_sessions, hourly_dist)
-        model.set_calculator(charge_curve_id)
+        model.set_calculator(charge_curve_id, curve_preset)
 
         charger_config = ChargerConfig(
             num_chargers=request.charger_config.num_chargers,
@@ -444,6 +458,7 @@ async def investment_analysis(request: InvestmentRequest):
     try:
         active_day, day_inputs, _ = _resolve_profile_distributions(request.profile)
         simulation_runs = _resolve_simulation_runs(request.profile)
+        curve_preset = _resolve_curve_preset(request.profile)
         total_sessions, hourly_dist = day_inputs[active_day]
 
         inv = request.investment
@@ -453,6 +468,7 @@ async def investment_analysis(request: InvestmentRequest):
             discount_rate_pct=inv.discount_rate_pct,
             opex_per_bay=inv.opex_per_bay,
             horizon_years=inv.horizon_years,
+            curve_preset=curve_preset,
         )
 
         profile = DayProfile(hourly_dist, total_sessions)

@@ -19,8 +19,11 @@ class apiModel:
     def set_calculator(
         self,
         charge_curve_id: str | None = None,
+        curve_preset: dict[str, float] | None = None,
     ) -> None:
-        self.calculator = BayCalculator(charge_curve_id=charge_curve_id)
+        self.calculator = BayCalculator(
+            charge_curve_id=charge_curve_id, curve_preset=curve_preset
+        )
 
     def run(self) -> BayResult:
         if not self.profile or not self.calculator:

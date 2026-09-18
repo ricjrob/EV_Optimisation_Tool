@@ -6,6 +6,11 @@ const calculateBtn = document.getElementById('calculate-btn');
 const loadExampleBtn = document.getElementById('load-example-btn');
 const normalizeBtn = document.getElementById('normalize-btn');
 const errorMessage = document.getElementById('error-message');
+const configurationTabs = Array.from(document.querySelectorAll('.configuration-tab'));
+const configTabDemand = document.getElementById('config-tab-demand');
+const configTabCurve = document.getElementById('config-tab-curve');
+const curveParameterGrid = document.getElementById('curve-parameter-grid');
+const resetCurvePresetBtn = document.getElementById('reset-curve-preset');
 
 const modeSessionsBtn = document.getElementById('mode-sessions');
 const modeProportionBtn = document.getElementById('mode-proportion');
@@ -76,6 +81,26 @@ const PRESETS = {
     overnight: [10, 9, 8, 7, 6, 4, 3, 2, 2, 3, 4, 5, 5, 5, 5, 5, 5, 6, 7, 8, 9, 10, 11, 11]
 };
 
+const CURVE_PARAMETERS = [
+    { key: 'battery_kwh_mean', label: 'Mean battery capacity (kWh)', value: 72, min: 1, step: 1, help: 'Average vehicle battery capacity used when sampling the fleet.' },
+    { key: 'battery_kwh_std', label: 'Battery capacity variation (kWh)', value: 16, min: 0, step: 1, help: 'Spread of sampled battery capacities around the average.' },
+    { key: 'battery_kwh_min', label: 'Minimum battery capacity (kWh)', value: 35, min: 1, step: 1, help: 'Lowest battery capacity permitted in vehicle samples.' },
+    { key: 'battery_kwh_max', label: 'Maximum battery capacity (kWh)', value: 130, min: 1, step: 1, help: 'Highest battery capacity permitted in vehicle samples.' },
+    { key: 'peak_kw_intercept', label: 'Peak power intercept (kW)', value: -30, step: 1, help: 'Base peak charging power before battery capacity is factored in.' },
+    { key: 'peak_kw_slope', label: 'Peak power per battery kWh', value: 2.2, step: 0.1, help: 'How much peak charging power increases for each extra kWh of battery capacity.' },
+    { key: 'peak_kw_std', label: 'Peak power variation (kW)', value: 60, min: 0, step: 1, help: 'Variation in peak charging power between sampled vehicles.' },
+    { key: 'peak_kw_min', label: 'Minimum peak power (kW)', value: 45, min: 1, step: 1, help: 'Lowest vehicle peak charging power permitted in samples.' },
+    { key: 'peak_kw_max', label: 'Maximum peak power (kW)', value: 340, min: 1, step: 1, help: 'Highest vehicle peak charging power permitted in samples.' },
+    { key: 'low_soc_floor', label: 'Low-SOC starting power fraction', value: 0.7, min: 0, max: 1, step: 0.01, help: 'Fraction of peak power available at an empty battery before the rapid low-SOC ramp.' },
+    { key: 'low_soc_tau', label: 'Low-SOC ramp width', value: 0.04, min: 0.001, step: 0.001, help: 'How quickly charging power reaches its early-session plateau as state of charge rises.' },
+    { key: 'taper_mid_soc', label: 'Taper midpoint SOC', value: 0.64, min: 0, max: 1, step: 0.01, help: 'State of charge at which the charging-power taper is halfway through.' },
+    { key: 'taper_width', label: 'Taper width', value: 0.11, min: 0.001, step: 0.01, help: 'How gradually charging power falls around the taper midpoint.' },
+    { key: 'min_power_fraction', label: 'Minimum power fraction', value: 0.14, min: 0, max: 1, step: 0.01, help: 'Lowest fraction of peak power allowed at high state of charge.' },
+    { key: 'efficiency', label: 'Charging efficiency', value: 0.94, min: 0.01, max: 1, step: 0.01, help: 'Share of charger output stored in the battery after charging losses.' },
+    { key: 'duration_scale', label: 'Duration scale', value: 1, min: 0.01, step: 0.01, help: 'Multiplier applied to physics-based charging duration.' },
+    { key: 'duration_jitter', label: 'Duration variation', value: 0.12, min: 0, step: 0.01, help: 'Random session-duration variation for driver and real-world effects.' }
+];
+
 const state = {
     mode: 'sessions',
     linked: true,
@@ -90,8 +115,53 @@ const state = {
     lastProfileConfig: null,
     investmentResult: null,
     peakPowerNeeds: null,
-    powerSimulationResult: null
+    powerSimulationResult: null,
+    activeConfigTab: 'demand',
+    curvePreset: Object.fromEntries(CURVE_PARAMETERS.map(parameter => [parameter.key, parameter.value]))
 };
+
+function renderCurvePresetEditor() {
+    curveParameterGrid.innerHTML = '';
+    CURVE_PARAMETERS.forEach(parameter => {
+        const group = document.createElement('div');
+        group.className = 'form-group';
+        const label = document.createElement('label');
+        label.htmlFor = `curve-${parameter.key}`;
+        label.textContent = parameter.label;
+        const input = document.createElement('input');
+        input.id = `curve-${parameter.key}`;
+        input.type = 'number';
+        input.value = String(state.curvePreset[parameter.key]);
+        input.step = String(parameter.step);
+        if (parameter.min !== undefined) input.min = String(parameter.min);
+        if (parameter.max !== undefined) input.max = String(parameter.max);
+        input.addEventListener('change', () => {
+            const value = Number(input.value);
+            if (Number.isFinite(value)) state.curvePreset[parameter.key] = value;
+        });
+        const help = document.createElement('small');
+        help.textContent = parameter.help;
+        group.append(label, input, help);
+        curveParameterGrid.appendChild(group);
+    });
+}
+
+function setConfigurationTab(tab) {
+    state.activeConfigTab = tab;
+    configurationTabs.forEach(button => button.classList.toggle('active', button.dataset.configTab === tab));
+    configTabDemand.classList.toggle('hidden', tab !== 'demand');
+    configTabCurve.classList.toggle('hidden', tab !== 'curve');
+}
+
+function getCurvePresetForApi() {
+    const preset = {};
+    for (const parameter of CURVE_PARAMETERS) {
+        const value = Number(state.curvePreset[parameter.key]);
+        if (!Number.isFinite(value)) return null;
+        preset[parameter.key] = value;
+    }
+    return preset;
+}
 
 function initDayValues() {
     const init = {};
@@ -487,6 +557,11 @@ async function handleCalculate() {
     }
 
     const simulationRuns = getEffectiveSimulationRuns();
+    const curvePreset = getCurvePresetForApi();
+    if (!curvePreset) {
+        showError('Every charging curve parameter must be a valid number');
+        return;
+    }
 
     // Prepare request
     const requestData = {
@@ -495,6 +570,7 @@ async function handleCalculate() {
             hourly_dist: hourlyDist,
             hourly_editor: exportHourlyEditorPayload(),
             charge_curve_id: 'dc_fast',
+            curve_preset: curvePreset,
             simulation_runs: simulationRuns
         }
     };
@@ -529,6 +605,16 @@ async function handleCalculate() {
 }
 
 function initDistributionEditor() {
+    configurationTabs.forEach(button => {
+        button.addEventListener('click', () => setConfigurationTab(button.dataset.configTab));
+    });
+    resetCurvePresetBtn.addEventListener('click', () => {
+        state.curvePreset = Object.fromEntries(CURVE_PARAMETERS.map(parameter => [parameter.key, parameter.value]));
+        renderCurvePresetEditor();
+    });
+    renderCurvePresetEditor();
+    setConfigurationTab(state.activeConfigTab);
+
     totalSessionsInput.addEventListener('change', () => {
         const entered = parseTotalSessionsInput();
         if (entered > 0) {
