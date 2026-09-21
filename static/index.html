@@ -145,6 +145,8 @@
                             Distributions</button>
                         <button type="button" class="results-tab" data-tab="investment">Investment
                             Summary</button>
+                        <button type="button" class="results-tab" data-tab="forecast">10-Year
+                            Forecast</button>
                         <button type="button" class="results-tab" data-tab="power-config">Power &
                             Chargers</button>
                     </div>
@@ -255,6 +257,42 @@
                         </div>
                     </div>
 
+                    <div id="tab-forecast" class="hidden">
+                        <div class="investment-panel">
+                            <h3>10-Year Demand Forecast Scenarios</h3>
+                            <p class="investment-note">Runs the current demand profile (as Year 1) through
+                                three 10-year EV adoption scenarios &mdash; Government Policy Drift, Steady
+                                Mandate, and Accelerated Adoption &mdash; using the existing bay-sizing and
+                                queueing simulation each year, to show how session demand and required bay
+                                provision diverge over time.</p>
+                            <div class="investment-inputs">
+                                <div class="form-group">
+                                    <label for="forecast-bay-count">Installed Bay Count (fixed for
+                                        horizon):</label>
+                                    <input type="number" id="forecast-bay-count" min="1" step="1" value="10">
+                                </div>
+                            </div>
+                            <button id="run-forecast-btn" class="btn btn-primary">Run 10-Year
+                                Forecast</button>
+                            <div id="forecast-error" class="error-message"></div>
+                        </div>
+
+                        <div id="forecast-summary" class="investment-summary hidden"></div>
+
+                        <div id="forecast-charts" class="dist-charts-grid hidden">
+                            <div class="dist-chart-section results-chart">
+                                <h3>Sessions per Day by Scenario</h3>
+                                <canvas id="forecast-sessions-chart-canvas"></canvas>
+                            </div>
+                            <div class="dist-chart-section results-chart">
+                                <h3>Required Bays by Scenario</h3>
+                                <canvas id="forecast-bays-chart-canvas"></canvas>
+                            </div>
+                        </div>
+
+                        <div id="forecast-tables" class="hidden"></div>
+                    </div>
+
                     <div id="tab-power-config" class="hidden">
                         <div class="investment-panel">
                             <h3>Peak Power Needs per Bay</h3>
@@ -323,7 +361,7 @@
         </footer>
     </div>
 
-    <script src="/static/script.js?v=13"></script>
+    <script src="/static/script.js?v=15"></script>
 </body>
 
 </html>

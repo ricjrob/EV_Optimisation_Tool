@@ -11,9 +11,9 @@ class BayCalculator:
         "dc_fast": {
             "description": "DC fast profile with battery-size-correlated peak and taper",
             "battery_kwh_mean": 72.0,
-            "battery_kwh_std": 16.0,
+            "battery_kwh_std": 18.0,
             "battery_kwh_min": 35.0,
-            "battery_kwh_max": 130.0,
+            "battery_kwh_max": 120.0,
             "peak_kw_intercept": -30.0,
             "peak_kw_slope": 2.2,
             "peak_kw_std": 60.0,

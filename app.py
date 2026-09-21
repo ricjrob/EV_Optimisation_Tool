@@ -6,8 +6,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from src.apiModel import apiModel
+from src.BayCalculator import BayCalculator
 from src.BayResult import BayResult
 from src.DayProfile import DayProfile
+from src.ForecastScenarios import SimModel, run_all_scenarios
 from src.InvestmentCalculator import InvestmentCalculator
 from src.PowerCalculator import PowerCalculator
 from src.PowerResult import ChargerConfig, ChargerSimulationResult, PeakPowerNeeds
@@ -67,6 +69,12 @@ class InvestmentConfig(BaseModel):
 class InvestmentRequest(BaseModel):
     profile: ProfileConfig
     investment: InvestmentConfig
+
+
+class ForecastRequest(BaseModel):
+    profile: ProfileConfig
+    bay_count: int
+    simulation_runs: int = 10
 
 
 class BayResultResponse(BaseModel):
@@ -523,6 +531,46 @@ async def investment_analysis(request: InvestmentRequest):
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Investment analysis failed: {str(e)}"
+        )
+
+
+@app.post("/api/forecast-scenarios")
+async def forecast_scenarios(request: ForecastRequest):
+    """Run the current demand profile (as Year 1) through three 10-year EV
+    adoption scenarios using the existing bay-sizing and queueing simulation."""
+    try:
+        active_day, day_inputs, _ = _resolve_profile_distributions(request.profile)
+        curve_preset = _resolve_curve_preset(request.profile)
+        total_sessions, hourly_dist = day_inputs[active_day]
+
+        if request.bay_count < 1:
+            raise HTTPException(status_code=400, detail="bay_count must be positive")
+
+        simulation_runs = max(3, min(30, int(round(request.simulation_runs))))
+
+        sim_model = SimModel(
+            base_profile=DayProfile(hourly_dist, total_sessions),
+            calculator=BayCalculator(curve_preset=curve_preset),
+            bay_count=request.bay_count,
+            simulation_runs=simulation_runs,
+        )
+        scenario_records = run_all_scenarios(sim_model).to_dict(orient="records")
+
+        return {
+            "day": active_day,
+            "base_total_sessions": total_sessions,
+            "bay_count": request.bay_count,
+            "simulation_runs": simulation_runs,
+            "scenarios": scenario_records,
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Forecast scenario run failed: {str(e)}"
         )
 
 

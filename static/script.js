@@ -53,6 +53,14 @@ const investmentTable = document.getElementById('investment-table');
 const investmentCharts = document.getElementById('investment-charts');
 const investmentTbody = document.getElementById('investment-tbody');
 
+const tabForecast = document.getElementById('tab-forecast');
+const forecastBayCountInput = document.getElementById('forecast-bay-count');
+const runForecastBtn = document.getElementById('run-forecast-btn');
+const forecastError = document.getElementById('forecast-error');
+const forecastSummary = document.getElementById('forecast-summary');
+const forecastCharts = document.getElementById('forecast-charts');
+const forecastTables = document.getElementById('forecast-tables');
+
 const tabPowerConfig = document.getElementById('tab-power-config');
 const powerP90Val = document.getElementById('power-p90-val');
 const powerP95Val = document.getElementById('power-p95-val');
@@ -114,6 +122,7 @@ const state = {
     resultsActiveTab: 'bay-requirements',
     lastProfileConfig: null,
     investmentResult: null,
+    forecastResult: null,
     peakPowerNeeds: null,
     powerSimulationResult: null,
     activeConfigTab: 'demand',
@@ -718,6 +727,7 @@ function initDistributionEditor() {
 calculateBtn.addEventListener('click', handleCalculate);
 loadExampleBtn.addEventListener('click', loadExample);
 runInvestmentBtn.addEventListener('click', handleInvestmentAnalysis);
+runForecastBtn.addEventListener('click', handleForecastScenarios);
 runPowerSimBtn.addEventListener('click', handlePowerSimulation);
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -736,6 +746,7 @@ function initResultsTabs() {
             tabBayRequirements.classList.toggle('hidden', state.resultsActiveTab !== 'bay-requirements');
             tabDistributions.classList.toggle('hidden', state.resultsActiveTab !== 'distributions');
             tabInvestment.classList.toggle('hidden', state.resultsActiveTab !== 'investment');
+            tabForecast.classList.toggle('hidden', state.resultsActiveTab !== 'forecast');
             tabPowerConfig.classList.toggle('hidden', state.resultsActiveTab !== 'power-config');
             if (state.resultsActiveTab === 'distributions' && state.resultSet) {
                 const selected = state.resultSet.dayResults[state.selectedResultDay];
@@ -745,6 +756,9 @@ function initResultsTabs() {
             }
             if (state.resultsActiveTab === 'investment' && state.investmentResult) {
                 renderInvestmentResult();
+            }
+            if (state.resultsActiveTab === 'forecast' && state.forecastResult) {
+                renderForecastResult();
             }
             if (state.resultsActiveTab === 'power-config' && state.peakPowerNeeds) {
                 renderPowerNeeds(state.peakPowerNeeds);
@@ -792,6 +806,13 @@ function displayResults(result) {
     investmentTable.classList.add('hidden');
     investmentCharts.classList.add('hidden');
     clearInvestmentError();
+
+    // New demand profile invalidates any previous forecast scenario run
+    state.forecastResult = null;
+    forecastSummary.classList.add('hidden');
+    forecastTables.classList.add('hidden');
+    forecastCharts.classList.add('hidden');
+    clearForecastError();
 
     // Store power needs from calculation
     if (result.peak_power_needs) {
@@ -1492,6 +1513,315 @@ function drawInvestmentLineChart(canvasId, scenarios, seriesDefs, options) {
         ctx.stroke();
         legendX -= 14 + 14;
     }
+}
+
+// 10-Year forecast scenarios tab
+const FORECAST_SCENARIO_COLORS = {
+    'Government Policy Drift (downside)': '#dc2626',
+    'Steady Mandate (base case)': '#667eea',
+    'Accelerated Adoption (upside)': '#059669'
+};
+
+const FORECAST_SCENARIO_DEFINITIONS = {
+    'Government Policy Drift (downside)':
+        'Downside case: policy support weakens or stalls, so peak-hour arrivals grow slowly ' +
+        '(4-6%/yr), dwell times shrink only slightly and unpredictably (high variance), arrival ' +
+        'clustering stays flat, and a growing share of drivers arrive with a low state of charge.',
+    'Steady Mandate (base case)':
+        'Base case: consistent policy-driven adoption gives strong early growth (12-15%/yr for ' +
+        '7 years, then 4-6%/yr), dwell times fall steadily as charging gets faster, and arrivals ' +
+        'cluster increasingly around the peak hour.',
+    'Accelerated Adoption (upside)':
+        'Upside case: rapid EV uptake drives high early growth (18-20%/yr for 5 years, then ' +
+        '10-12%/yr), dwell times fall quickly and predictably, arrivals cluster tightly around ' +
+        'the peak hour, and drivers increasingly top up earlier (lower arrival state of charge).'
+};
+
+function showForecastError(message) {
+    forecastError.textContent = message;
+    forecastError.classList.add('show');
+}
+
+function clearForecastError() {
+    forecastError.classList.remove('show');
+}
+
+async function handleForecastScenarios() {
+    clearForecastError();
+
+    if (!state.lastProfileConfig || !state.resultSet) {
+        showForecastError('Run Calculate first to generate a demand profile.');
+        return;
+    }
+
+    const bayCount = Number(forecastBayCountInput.value);
+    if (!isFinite(bayCount) || bayCount < 1) {
+        showForecastError('Installed bay count must be a positive number');
+        return;
+    }
+
+    // Use the day selected in the results day picker as the Year 1 demand profile
+    const profile = { ...state.lastProfileConfig };
+    if (profile.hourly_editor) {
+        profile.hourly_editor = { ...profile.hourly_editor, active_day: state.selectedResultDay };
+    }
+    const selectedDayValues = state.dayValues[state.selectedResultDay] || getActiveValues();
+    const selectedDaySum = selectedDayValues.reduce((a, b) => a + b, 0);
+    if (selectedDaySum > 0) {
+        profile.hourly_dist = selectedDayValues.map(v => v / selectedDaySum);
+    }
+
+    const requestData = {
+        profile,
+        bay_count: Math.round(bayCount),
+        simulation_runs: 10
+    };
+
+    try {
+        runForecastBtn.disabled = true;
+        runForecastBtn.textContent = 'Running scenarios...';
+
+        const response = await fetch('/api/forecast-scenarios', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || error.error || 'Forecast scenario run failed');
+        }
+
+        state.forecastResult = await response.json();
+        renderForecastResult();
+    } catch (error) {
+        showForecastError('Forecast error: ' + error.message);
+    } finally {
+        runForecastBtn.disabled = false;
+        runForecastBtn.textContent = 'Run 10-Year Forecast';
+    }
+}
+
+function renderForecastResult() {
+    const result = state.forecastResult;
+    if (!result) {
+        return;
+    }
+
+    const rows = result.scenarios || [];
+    const grouped = {};
+    rows.forEach(row => {
+        if (!grouped[row.scenario_name]) {
+            grouped[row.scenario_name] = [];
+        }
+        grouped[row.scenario_name].push(row);
+    });
+    Object.values(grouped).forEach(scenarioRows => scenarioRows.sort((a, b) => a.year - b.year));
+
+    forecastSummary.innerHTML = '';
+    Object.entries(grouped).forEach(([name, scenarioRows]) => {
+        const first = scenarioRows[0];
+        const last = scenarioRows[scenarioRows.length - 1];
+        const color = FORECAST_SCENARIO_COLORS[name] || '#333';
+        const p = document.createElement('p');
+        p.style.margin = '4px 0';
+        p.innerHTML = `<strong style="color:${color}">${name}</strong>: sessions/day ` +
+            `${first.total_sessions.toFixed(0)} \u2192 ${last.total_sessions.toFixed(0)} by Year ${last.year}, ` +
+            `while the recommended provision grows ${first.required_bays.toFixed(0)} \u2192 ` +
+            `${last.required_bays.toFixed(0)} bays. Holding ${result.bay_count} installed bays fixed, the ` +
+            `Year ${last.year} service level falls to ${(last.service_level * 100).toFixed(1)}% ` +
+            `(${last.queue_length.toFixed(1)} lost sessions/day).`;
+        forecastSummary.appendChild(p);
+    });
+    forecastSummary.classList.remove('hidden');
+
+    forecastTables.innerHTML = '';
+    Object.entries(grouped).forEach(([name, scenarioRows]) => {
+        const section = document.createElement('div');
+        section.className = 'results-table';
+
+        const heading = document.createElement('h3');
+        heading.textContent = name;
+        section.appendChild(heading);
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'table-wrapper';
+        const table = document.createElement('table');
+        table.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Year</th>
+                    <th>Sessions / Day</th>
+                    <th>Peak Arrival Rate</th>
+                    <th>Mean Dwell (min)</th>
+                    <th>Required Bays</th>
+                    <th>Installed Bays</th>
+                    <th>Service Level</th>
+                    <th>Queue (lost/day)</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${scenarioRows.map(row => `
+                    <tr>
+                        <td>${row.year}</td>
+                        <td>${row.total_sessions.toFixed(0)}</td>
+                        <td>${row.peak_arrival_rate.toFixed(1)}</td>
+                        <td>${row.mean_dwell_time.toFixed(1)}</td>
+                        <td><strong>${row.required_bays.toFixed(0)}</strong></td>
+                        <td>${row.bay_count}</td>
+                        <td>${(row.service_level * 100).toFixed(1)}%</td>
+                        <td>${row.queue_length.toFixed(1)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        `;
+        wrapper.appendChild(table);
+        section.appendChild(wrapper);
+
+        const definition = document.createElement('p');
+        definition.className = 'investment-note';
+        definition.style.marginTop = '10px';
+        definition.textContent = FORECAST_SCENARIO_DEFINITIONS[name] || '';
+        section.appendChild(definition);
+
+        forecastTables.appendChild(section);
+    });
+    forecastTables.classList.remove('hidden');
+
+    forecastCharts.classList.remove('hidden');
+    const scenarioGroups = Object.entries(grouped).map(([name, scenarioRows]) => ({
+        name,
+        color: FORECAST_SCENARIO_COLORS[name] || '#333',
+        points: scenarioRows
+    }));
+    drawScenarioLineChart('forecast-sessions-chart-canvas', scenarioGroups, 'total_sessions', {
+        yFormatter: v => v.toFixed(0)
+    });
+    drawScenarioLineChart('forecast-bays-chart-canvas', scenarioGroups, 'required_bays', {
+        yFormatter: v => v.toFixed(0)
+    });
+}
+
+// Multi-series line chart for 10-year scenario forecasts (x = year)
+function drawScenarioLineChart(canvasId, scenarioGroups, valueKey, options) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || scenarioGroups.length === 0) {
+        return;
+    }
+    const ctx = canvas.getContext('2d');
+
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const width = Math.max(280, rect.width - 32);
+    const height = 280;
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const plot = { top: 36, right: 20, bottom: 40, left: 50 };
+
+    ctx.fillStyle = '#f9f9f9';
+    ctx.fillRect(0, 0, width, height);
+
+    const allValues = [];
+    const allYears = [];
+    scenarioGroups.forEach(group => {
+        group.points.forEach(point => {
+            allValues.push(point[valueKey]);
+            allYears.push(point.year);
+        });
+    });
+
+    if (allValues.length === 0) {
+        ctx.fillStyle = '#666';
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('No forecast data', width / 2, height / 2);
+        return;
+    }
+
+    const yLow = Math.min(0, ...allValues);
+    const yHigh = Math.max(...allValues) * 1.15 || 1;
+    const xMin = Math.min(...allYears);
+    const xMax = Math.max(...allYears);
+    const plotWidth = width - plot.left - plot.right;
+    const plotHeight = height - plot.top - plot.bottom;
+    const scaleX = xMax > xMin ? plotWidth / (xMax - xMin) : 0;
+    const scaleY = plotHeight / (yHigh - yLow || 1);
+
+    const xPos = year => xMax > xMin ? plot.left + (year - xMin) * scaleX : plot.left + plotWidth / 2;
+    const yPos = v => height - plot.bottom - (v - yLow) * scaleY;
+
+    // Gridlines and y-axis labels
+    const yTicks = 5;
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= yTicks; i++) {
+        const v = yLow + (yHigh - yLow) * (i / yTicks);
+        const y = yPos(v);
+        ctx.beginPath();
+        ctx.moveTo(plot.left, y);
+        ctx.lineTo(width - plot.right, y);
+        ctx.stroke();
+        ctx.fillStyle = '#666';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(options.yFormatter(v), plot.left - 6, y);
+    }
+
+    // X-axis year labels
+    ctx.fillStyle = '#666';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let year = xMin; year <= xMax; year++) {
+        ctx.fillText(`Y${year}`, xPos(year), height - plot.bottom + 6);
+    }
+
+    // Series lines and point markers
+    scenarioGroups.forEach(group => {
+        ctx.strokeStyle = group.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        group.points.forEach((point, idx) => {
+            const x = xPos(point.year);
+            const y = yPos(point[valueKey]);
+            if (idx === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        ctx.stroke();
+
+        ctx.fillStyle = group.color;
+        group.points.forEach(point => {
+            ctx.beginPath();
+            ctx.arc(xPos(point.year), yPos(point[valueKey]), 3, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    });
+
+    // Legend
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    let legendX = plot.left;
+    const legendY = 16;
+    scenarioGroups.forEach(group => {
+        ctx.fillStyle = group.color;
+        ctx.fillRect(legendX, legendY - 5, 10, 10);
+        ctx.fillStyle = '#333';
+        ctx.fillText(group.name.replace(/ \(.*\)$/, ''), legendX + 14, legendY);
+        legendX += ctx.measureText(group.name).width + 30;
+    });
 }
 
 // Error/Success messages
