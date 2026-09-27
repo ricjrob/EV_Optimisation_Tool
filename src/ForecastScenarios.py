@@ -4,10 +4,11 @@ This module does not change the existing simulation logic in
 `BayCalculator`, `DayProfile`, or `InvestmentCalculator`. Each year it derives
 new arrival-rate and dwell-time parameter values from the scenario
 assumptions and feeds them into those existing components unchanged.
-"""
+"""  # noqa: N999
 
 from __future__ import annotations
 
+import math
 import statistics
 from dataclasses import dataclass
 
@@ -115,15 +116,28 @@ def _apply_clustering(
     return [p / total for p in reshaped]
 
 
+def _ramped_clustering_factor(clustering_factor: float, year: int) -> float:
+    """Ramps from no distortion at Year 1 (matching today's baseline distribution)
+    up to the scenario's full clustering_factor by Year 10."""
+    if HORIZON_YEARS <= 1:
+        return clustering_factor
+    progress = (year - 1) / (HORIZON_YEARS - 1)
+    return 1.0 + (clustering_factor - 1.0) * progress
+
+
 def _year_profile(
     base_profile: DayProfile, scenario: Scenario, year: int
 ) -> DayProfile:
-    compounded_growth = scenario.compounded_growth_through_year(year)
+    # Year 1 has zero elapsed growth years, so it matches today's baseline profile.
+    compounded_growth = scenario.compounded_growth_through_year(year - 1)
     total_sessions = round(
         base_profile.get_total_sessions_per_day() * compounded_growth
     )
+    effective_clustering_factor = _ramped_clustering_factor(
+        scenario.clustering_factor, year
+    )
     clustered_dist = _apply_clustering(
-        base_profile.get_day_profile(), scenario.clustering_factor
+        base_profile.get_day_profile(), effective_clustering_factor
     )
     return DayProfile(clustered_dist, total_sessions)
 
@@ -131,7 +145,8 @@ def _year_profile(
 def _year_curve_overrides(
     base_calculator: BayCalculator, scenario: Scenario, year: int
 ) -> dict[str, float]:
-    dwell_multiplier = max(0.1, (1.0 - scenario.dwell_time_decline) ** year)
+    # Year 1 has zero elapsed decline years, so dwell time matches today's baseline.
+    dwell_multiplier = max(0.1, (1.0 - scenario.dwell_time_decline) ** (year - 1))
     overrides = dict(base_calculator.curve_preset)
     overrides["duration_scale"] = overrides["duration_scale"] * dwell_multiplier
     overrides["duration_jitter"] = _DWELL_VARIANCE_JITTER[scenario.dwell_time_variance]
@@ -210,6 +225,21 @@ def run_all_scenarios(sim_model: SimModel) -> pd.DataFrame:
     for scenario in SCENARIOS.values():
         all_results.extend(run_scenario(sim_model, scenario))
     return pd.DataFrame(all_results)
+
+
+def recommended_bays(scenario_records: list[dict]) -> int:
+    """The single "recommended bays" figure used consistently across the
+    Bays Needed, Investment, and Power & Chargers modules: the Steady Mandate
+    (base-case) scenario's Year 1 required bays, which now equals today's
+    baseline bay-sizing recommendation since scenario effects ramp in from
+    Year 1 rather than being applied immediately."""
+    steady_mandate_name = SCENARIOS["steady_mandate"].name
+    year1 = next(
+        record
+        for record in scenario_records
+        if record["scenario_name"] == steady_mandate_name and record["year"] == 1
+    )
+    return math.ceil(year1["required_bays"])
 
 
 if __name__ == "__main__":

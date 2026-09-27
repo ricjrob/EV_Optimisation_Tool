@@ -36,10 +36,14 @@ const resultsChart = document.getElementById('results-chart');
 const noResults = document.getElementById('no-results');
 const maxBaysDisplay = document.getElementById('max-bays');
 const peakDayDisplay = document.getElementById('peak-day');
+const recommendedBaysValueDisplay = document.getElementById('recommended-bays-value');
 const resultsDayPicker = document.getElementById('results-day-picker');
 const resultsTableTitle = document.getElementById('results-table-title');
 const resultsChartTitle = document.getElementById('results-chart-title');
 const resultsTbody = document.getElementById('results-tbody');
+const bayRequirementsForecast = document.getElementById('bay-requirements-forecast');
+const bayRequirementsForecastLoading = document.getElementById('bay-requirements-forecast-loading');
+const bayRequirementsForecastSummary = document.getElementById('bay-requirements-forecast-summary');
 
 const tabInvestment = document.getElementById('tab-investment');
 const invCostPerBayInput = document.getElementById('inv-cost-per-bay');
@@ -123,6 +127,7 @@ const state = {
     lastProfileConfig: null,
     investmentResult: null,
     forecastResult: null,
+    recommendedBays: null,
     peakPowerNeeds: null,
     powerSimulationResult: null,
     activeConfigTab: 'demand',
@@ -748,6 +753,9 @@ function initResultsTabs() {
             tabInvestment.classList.toggle('hidden', state.resultsActiveTab !== 'investment');
             tabForecast.classList.toggle('hidden', state.resultsActiveTab !== 'forecast');
             tabPowerConfig.classList.toggle('hidden', state.resultsActiveTab !== 'power-config');
+            if (state.resultsActiveTab === 'bay-requirements' && state.forecastResult) {
+                renderForecastResult();
+            }
             if (state.resultsActiveTab === 'distributions' && state.resultSet) {
                 const selected = state.resultSet.dayResults[state.selectedResultDay];
                 if (selected) {
@@ -800,6 +808,10 @@ function displayResults(result) {
     resultsTabs.classList.remove('hidden');
     noResults.classList.add('hidden');
 
+    // New demand profile invalidates any previous recommended-bays figure
+    state.recommendedBays = null;
+    recommendedBaysValueDisplay.textContent = '-';
+
     // New demand profile invalidates any previous investment analysis
     state.investmentResult = null;
     investmentSummary.classList.add('hidden');
@@ -812,6 +824,7 @@ function displayResults(result) {
     forecastSummary.classList.add('hidden');
     forecastTables.classList.add('hidden');
     forecastCharts.classList.add('hidden');
+    bayRequirementsForecastSummary.innerHTML = '';
     clearForecastError();
 
     // Store power needs from calculation
@@ -829,6 +842,11 @@ function displayResults(result) {
 
     renderResultsDayPicker();
     renderSelectedDayResults();
+
+    // Automatically run the 10-year forecast using the just-calculated peak bays
+    // as the installed bay count, so the outlook appears in the Bays Needed tab.
+    forecastBayCountInput.value = String(Math.max(1, state.resultSet.overallPeakBays));
+    runAutoForecastScenarios();
 }
 
 function renderResultsDayPicker() {
@@ -1546,7 +1564,32 @@ function clearForecastError() {
     forecastError.classList.remove('show');
 }
 
+// Keeps the "Recommended Bays" figure (Steady Mandate Year 1) consistent across
+// the Bays Needed summary, the 10-Year Forecast bay count, and the Power &
+// Chargers deployment defaults.
+function applyRecommendedBaysDefaults() {
+    if (!state.recommendedBays) {
+        return;
+    }
+    recommendedBaysValueDisplay.textContent = state.recommendedBays;
+    forecastBayCountInput.value = String(state.recommendedBays);
+
+    const baysPerCharger = Math.max(1, parseInt(powerBaysPerChargerInput.value, 10) || 2);
+    powerNumChargersInput.value = String(Math.max(1, Math.ceil(state.recommendedBays / baysPerCharger)));
+}
+
 async function handleForecastScenarios() {
+    await runForecastScenarios();
+}
+
+async function runAutoForecastScenarios() {
+    bayRequirementsForecast.classList.remove('hidden');
+    bayRequirementsForecastLoading.classList.remove('hidden');
+    await runForecastScenarios();
+    bayRequirementsForecastLoading.classList.add('hidden');
+}
+
+async function runForecastScenarios() {
     clearForecastError();
 
     if (!state.lastProfileConfig || !state.resultSet) {
@@ -1595,6 +1638,8 @@ async function handleForecastScenarios() {
         }
 
         state.forecastResult = await response.json();
+        state.recommendedBays = state.forecastResult.recommended_bays ?? null;
+        applyRecommendedBaysDefaults();
         renderForecastResult();
     } catch (error) {
         showForecastError('Forecast error: ' + error.message);
@@ -1700,6 +1745,17 @@ function renderForecastResult() {
         yFormatter: v => v.toFixed(0)
     });
     drawScenarioLineChart('forecast-bays-chart-canvas', scenarioGroups, 'required_bays', {
+        yFormatter: v => v.toFixed(0)
+    });
+
+    renderBayRequirementsForecastPreview(scenarioGroups);
+}
+
+// Mirrors the required-bays outlook and summary into the Bay Requirements tab
+function renderBayRequirementsForecastPreview(scenarioGroups) {
+    bayRequirementsForecastSummary.innerHTML = forecastSummary.innerHTML;
+    bayRequirementsForecast.classList.remove('hidden');
+    drawScenarioLineChart('bay-requirements-forecast-chart-canvas', scenarioGroups, 'required_bays', {
         yFormatter: v => v.toFixed(0)
     });
 }

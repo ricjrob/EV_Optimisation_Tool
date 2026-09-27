@@ -131,6 +131,10 @@
                                 <h3>Peak Day</h3>
                                 <div class="summary-value summary-value-day" id="peak-day">-</div>
                             </div>
+                            <div class="summary-box" id="recommended-bays-box">
+                                <h3>Recommended Bays (Steady Mandate)</h3>
+                                <div class="summary-value" id="recommended-bays-value">-</div>
+                            </div>
                         </div>
                         <div class="results-day-picker-wrap">
                             <p class="results-day-picker-label">Select a day to inspect the hourly profile</p>
@@ -175,6 +179,17 @@
                         <div id="results-chart" class="results-chart hidden">
                             <h3 id="results-chart-title">Bays Required by Hour</h3>
                             <canvas id="chart-canvas"></canvas>
+                        </div>
+
+                        <div id="bay-requirements-forecast" class="results-chart hidden">
+                            <h3>10-Year Bays Needed Outlook</h3>
+                            <p class="investment-note">Automatically projects required bay provision over
+                                a 10-year horizon across three EV adoption scenarios. See the "10-Year
+                                Forecast" tab for full year-by-year detail.</p>
+                            <div id="bay-requirements-forecast-loading" class="hidden">Running 10-year
+                                forecast&hellip;</div>
+                            <canvas id="bay-requirements-forecast-chart-canvas"></canvas>
+                            <div id="bay-requirements-forecast-summary" class="investment-summary"></div>
                         </div>
                     </div>
 
@@ -361,7 +376,7 @@
         </footer>
     </div>
 
-    <script src="/static/script.js?v=15"></script>
+    <script src="/static/script.js?v=17"></script>
 </body>
 
 </html>
