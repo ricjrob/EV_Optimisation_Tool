@@ -9,7 +9,12 @@ from src.apiModel import apiModel
 from src.BayCalculator import BayCalculator
 from src.BayResult import BayResult
 from src.DayProfile import DayProfile
-from src.ForecastScenarios import SimModel, recommended_bays, run_all_scenarios
+from src.ForecastScenarios import (
+    SCENARIOS,
+    SimModel,
+    run_all_scenarios,
+    weekly_recommendation,
+)
 from src.InvestmentCalculator import InvestmentCalculator
 from src.PowerCalculator import PowerCalculator
 from src.PowerResult import ChargerConfig, ChargerSimulationResult, PeakPowerNeeds
@@ -556,13 +561,30 @@ async def forecast_scenarios(request: ForecastRequest):
         )
         scenario_records = run_all_scenarios(sim_model).to_dict(orient="records")
 
+        steady_name = SCENARIOS["steady_mandate"].name
+        weekly = weekly_recommendation(
+            sim_model.calculator,
+            {
+                day: DayProfile(dist, sessions)
+                for day, (sessions, dist) in day_inputs.items()
+            },
+            request.bay_count,
+            simulation_runs,
+            precomputed={
+                active_day: [
+                    r for r in scenario_records if r["scenario_name"] == steady_name
+                ]
+            },
+        )
+
         return {
+            "weekly_recommendation": weekly,
             "day": active_day,
             "base_total_sessions": total_sessions,
             "bay_count": request.bay_count,
             "simulation_runs": simulation_runs,
             "scenarios": scenario_records,
-            "recommended_bays": recommended_bays(scenario_records),
+            "recommended_bays": weekly["year1_bays"],
         }
 
     except HTTPException:

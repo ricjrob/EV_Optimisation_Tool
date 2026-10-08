@@ -37,6 +37,7 @@ const noResults = document.getElementById('no-results');
 const maxBaysDisplay = document.getElementById('max-bays');
 const peakDayDisplay = document.getElementById('peak-day');
 const recommendedBaysValueDisplay = document.getElementById('recommended-bays-value');
+const recommendedBaysExplanation = document.getElementById('recommended-bays-explanation');
 const resultsDayPicker = document.getElementById('results-day-picker');
 const resultsTableTitle = document.getElementById('results-table-title');
 const resultsChartTitle = document.getElementById('results-chart-title');
@@ -811,6 +812,8 @@ function displayResults(result) {
     // New demand profile invalidates any previous recommended-bays figure
     state.recommendedBays = null;
     recommendedBaysValueDisplay.textContent = '-';
+    recommendedBaysExplanation.textContent = '';
+    recommendedBaysExplanation.classList.add('hidden');
 
     // New demand profile invalidates any previous investment analysis
     state.investmentResult = null;
@@ -1572,6 +1575,23 @@ function applyRecommendedBaysDefaults() {
         return;
     }
     recommendedBaysValueDisplay.textContent = state.recommendedBays;
+    const weekly = state.forecastResult?.weekly_recommendation;
+    const year10Bays = weekly?.year10_bays;
+    const horizon = weekly?.horizon_years ?? 10;
+    const plural = n => `bay${n === 1 ? '' : 's'}`;
+    let text =
+        `The recommendation covers the whole week: for each day, the median required bays under the Steady Mandate Year 1 base case is rounded up, ` +
+        `and the busiest day sets the figure (${state.recommendedBays} ${plural(state.recommendedBays)}). ` +
+        `It is a separate simulation from the hourly table, so it can differ slightly from the daily max shown (${state.resultSet.overallPeakBays}).`;
+    if (year10Bays != null) {
+        const growth = year10Bays - state.recommendedBays;
+        text += ` Under the same steady-state growth, the busiest day is projected to need ${year10Bays} ${plural(year10Bays)} by Year ${horizon}` +
+            (growth > 0
+                ? `, ${growth} more than today. Installing ${state.recommendedBays} now would need ${growth} further ${plural(growth)} over time; installing ${year10Bays} now avoids later expansion but raises upfront investment.`
+                : `, so no additional bays are expected to be needed.`);
+    }
+    recommendedBaysExplanation.textContent = text;
+    recommendedBaysExplanation.classList.remove('hidden');
     forecastBayCountInput.value = String(state.recommendedBays);
 
     const baysPerCharger = Math.max(1, parseInt(powerBaysPerChargerInput.value, 10) || 2);

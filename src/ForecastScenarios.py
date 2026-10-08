@@ -242,6 +242,37 @@ def recommended_bays(scenario_records: list[dict]) -> int:
     return math.ceil(year1["required_bays"])
 
 
+def weekly_recommendation(
+    calculator: BayCalculator,
+    day_profiles: dict[str, DayProfile],
+    bay_count: int,
+    simulation_runs: int,
+    precomputed: dict[str, list[dict]] | None = None,
+) -> dict:
+    """Steady Mandate bays for the whole week: for each day, the rounded-up
+    median required bays; the recommendation is the busiest day's value.
+    Reports Year 1 (invest today) and Year 10 (steady-state growth) figures.
+    `precomputed` maps day -> already-run Steady Mandate records to avoid reruns."""
+    scenario = SCENARIOS["steady_mandate"]
+    per_day: dict[str, dict] = {}
+    for day, profile in day_profiles.items():
+        records = (precomputed or {}).get(day)
+        if records is None:
+            records = run_scenario(
+                SimModel(profile, calculator, bay_count, simulation_runs), scenario
+            )
+        per_day[day] = {
+            "year1_bays": math.ceil(records[0]["required_bays"]),
+            "year10_bays": math.ceil(records[-1]["required_bays"]),
+        }
+    return {
+        "per_day": per_day,
+        "year1_bays": max(d["year1_bays"] for d in per_day.values()),
+        "year10_bays": max(d["year10_bays"] for d in per_day.values()),
+        "horizon_years": HORIZON_YEARS,
+    }
+
+
 if __name__ == "__main__":
     base_profile = DayProfile.commuter_double_peak(total_sessions=80)
     base_calculator = BayCalculator()
