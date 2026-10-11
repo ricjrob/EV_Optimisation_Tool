@@ -62,6 +62,48 @@ class InvestmentCalculator:
             self._evaluate_bays(profile, bays, runs, calculator) for bays in bay_counts
         ]
 
+    def evaluate_forecast_cashflows(
+        self,
+        bays: int,
+        annual_operations: list[tuple[float, float, float]],
+    ) -> InvestmentScenario:
+        """Convert year-by-year operating simulations into investment metrics.
+
+        Each tuple contains lost sessions per day, served sessions per day, and
+        average energy per served session for one forecast year.
+        """
+        if not annual_operations:
+            raise ValueError("At least one forecast year is required")
+
+        annual_gross_margins = [
+            served * DAYS_PER_YEAR * energy * self.gross_margin_per_kwh
+            for _, served, energy in annual_operations
+        ]
+        annual_net_cashflows = [
+            margin - bays * self.opex_per_bay for margin in annual_gross_margins
+        ]
+        lost, served, energy = annual_operations[0]
+        capex = bays * self.cost_per_bay
+
+        return InvestmentScenario(
+            bays=bays,
+            capex=capex,
+            lost_sessions_per_day=lost,
+            served_sessions_per_day=served,
+            avg_energy_per_session_kwh=energy,
+            annual_gross_margin=annual_gross_margins[0],
+            annual_opex=bays * self.opex_per_bay,
+            annual_net_cashflow=annual_net_cashflows[0],
+            simple_payback_years=self._variable_simple_payback(
+                capex, annual_net_cashflows
+            ),
+            irr_pct=self._variable_irr_pct(capex, annual_net_cashflows),
+            discounted_payback_years=self._variable_discounted_payback(
+                capex, annual_net_cashflows
+            ),
+            npv=self._variable_npv(capex, annual_net_cashflows),
+        )
+
     def estimate_peak_bays(self, profile: DayProfile) -> int:
         """Rough peak-hour bay requirement, used to default the scenario range."""
         total = profile.get_total_sessions_per_day()
@@ -217,3 +259,58 @@ class InvestmentCalculator:
         return math.log(annual_cashflow / (annual_cashflow - capex * rate)) / math.log(
             1.0 + rate
         )
+
+    def _variable_simple_payback(
+        self, capex: float, annual_cashflows: list[float]
+    ) -> float | None:
+        cumulative = 0.0
+        for year, cashflow in enumerate(annual_cashflows, start=1):
+            previous = cumulative
+            cumulative += cashflow
+            if cashflow > 0 and previous < capex <= cumulative:
+                return year - 1 + (capex - previous) / cashflow
+        return None
+
+    def _variable_npv(self, capex: float, annual_cashflows: list[float]) -> float:
+        return -capex + sum(
+            cashflow / (1.0 + self.discount_rate) ** year
+            for year, cashflow in enumerate(annual_cashflows, start=1)
+        )
+
+    def _variable_irr_pct(
+        self, capex: float, annual_cashflows: list[float]
+    ) -> float | None:
+        if capex <= 0 or not any(cashflow > 0 for cashflow in annual_cashflows):
+            return None
+
+        def npv_at(rate: float) -> float:
+            return -capex + sum(
+                cashflow / (1.0 + rate) ** year
+                for year, cashflow in enumerate(annual_cashflows, start=1)
+            )
+
+        lo, hi = -0.99, 10.0
+        if npv_at(hi) > 0:
+            return 1000.0
+        if npv_at(lo) < 0:
+            return None
+
+        for _ in range(80):
+            mid = 0.5 * (lo + hi)
+            if npv_at(mid) > 0:
+                lo = mid
+            else:
+                hi = mid
+        return 0.5 * (lo + hi) * 100.0
+
+    def _variable_discounted_payback(
+        self, capex: float, annual_cashflows: list[float]
+    ) -> float | None:
+        cumulative = 0.0
+        for year, cashflow in enumerate(annual_cashflows, start=1):
+            discounted_cashflow = cashflow / (1.0 + self.discount_rate) ** year
+            previous = cumulative
+            cumulative += discounted_cashflow
+            if discounted_cashflow > 0 and previous < capex <= cumulative:
+                return year - 1 + (capex - previous) / discounted_cashflow
+        return None

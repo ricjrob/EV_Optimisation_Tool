@@ -13,6 +13,7 @@ from src.ForecastScenarios import (
     SCENARIOS,
     SimModel,
     run_all_scenarios,
+    run_investment_scenarios,
     weekly_recommendation,
 )
 from src.InvestmentCalculator import InvestmentCalculator
@@ -509,14 +510,22 @@ async def investment_analysis(request: InvestmentRequest):
                 ),
             )
 
-        scenarios = calculator.simulate_scenarios(
-            profile, list(range(bay_min, bay_max + 1)), simulation_runs
+        forecast_simulation_runs = max(3, simulation_runs)
+        scenario_groups = run_investment_scenarios(
+            SimModel(
+                base_profile=profile,
+                calculator=BayCalculator(curve_preset=curve_preset),
+                bay_count=bay_min,
+                simulation_runs=forecast_simulation_runs,
+            ),
+            calculator,
+            list(range(bay_min, bay_max + 1)),
         )
 
         return {
             "day": active_day,
             "total_sessions": total_sessions,
-            "simulation_runs": simulation_runs,
+            "simulation_runs": forecast_simulation_runs,
             "inputs": {
                 "cost_per_bay": calculator.cost_per_bay,
                 "gross_margin_per_kwh": calculator.gross_margin_per_kwh,
@@ -526,7 +535,7 @@ async def investment_analysis(request: InvestmentRequest):
                 "bay_min": bay_min,
                 "bay_max": bay_max,
             },
-            "scenarios": [scenario.to_dict() for scenario in scenarios],
+            "scenario_groups": scenario_groups,
         }
 
     except HTTPException:

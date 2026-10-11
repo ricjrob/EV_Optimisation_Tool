@@ -17,6 +17,57 @@ body {
     margin: 0 auto;
 }
 
+.site-summary-bar {
+    position: sticky;
+    top: 12px;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: 1.4fr repeat(6, minmax(100px, 1fr));
+    gap: 1px;
+    margin: 0 0 24px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 8px 22px rgba(32, 38, 90, 0.2);
+    backdrop-filter: blur(10px);
+}
+
+.site-summary-title,
+.site-summary-metric {
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.site-summary-title {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    color: #4338ca;
+    font-size: 0.78em;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.site-summary-metric span,
+.site-summary-metric strong {
+    display: block;
+}
+
+.site-summary-metric span {
+    color: #64748b;
+    font-size: 0.72em;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.site-summary-metric strong {
+    margin-top: 3px;
+    color: #1e293b;
+    font-size: 1em;
+}
+
 header {
     text-align: center;
     color: white;
@@ -790,6 +841,35 @@ footer {
     border-bottom-color: #667eea;
 }
 
+.results-tab span {
+    display: inline-grid;
+    width: 22px;
+    height: 22px;
+    margin-right: 6px;
+    place-items: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 0.8em;
+}
+
+.results-tab.complete span {
+    background: #059669;
+    border-color: #059669;
+    color: white;
+}
+
+.results-tab.complete span::after {
+    content: "✓";
+}
+
+.results-tab.complete span {
+    font-size: 0;
+}
+
+.results-tab.complete span::after {
+    font-size: 13px;
+}
+
 /* Distributions tab */
 .dist-charts-grid {
     display: grid;
@@ -851,6 +931,117 @@ footer {
     color: #333;
 }
 
+.workflow-eyebrow {
+    margin-bottom: 4px;
+    color: #059669;
+    font-size: 0.76em;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.workflow-stage-intro {
+    margin-bottom: 20px;
+    padding: 20px;
+    border: 1px solid #d9ddf8;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #f7f7ff, #f0fdf4);
+}
+
+.workflow-stage-intro h3 {
+    margin-bottom: 8px;
+    color: #312e81;
+}
+
+.hardware-dependency-chain {
+    margin: 0 0 16px;
+    padding: 12px 16px;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    background: #f0fdf4;
+    color: #166534;
+    font-weight: 700;
+}
+
+.executive-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.executive-card,
+.recommendation-narrative {
+    padding: 20px;
+    border: 1px solid #d9ddf8;
+    border-radius: 10px;
+    background: #fcfcff;
+}
+
+.executive-card h4,
+.recommendation-narrative h4 {
+    margin-bottom: 12px;
+    color: #312e81;
+    font-size: 1.05em;
+}
+
+.executive-metric {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.executive-metric:last-child {
+    border-bottom: none;
+}
+
+.executive-metric span {
+    color: #64748b;
+}
+
+.executive-risk-card,
+.recommendation-narrative {
+    margin-top: 16px;
+}
+
+.risk-table-wrapper {
+    overflow-x: auto;
+}
+
+.recommendation-narrative {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+}
+
+.investment-scenario-group {
+    margin-bottom: 32px;
+    padding: 20px;
+    border: 2px solid #d9ddf8;
+    border-radius: 10px;
+    background: #fcfcff;
+}
+
+.investment-scenario-group > h3 {
+    color: #4338ca;
+    font-size: 1.2em;
+    margin-bottom: 6px;
+}
+
+.investment-scenario-group .results-table {
+    margin-top: 16px;
+}
+
+.investment-scenario-group h4 {
+    color: #333;
+    font-size: 1em;
+    margin-bottom: 12px;
+}
+
+.investment-scenario-group .results-chart {
+    margin-top: 0;
+}
+
 .investment-row-recommended td {
     background: #eaf6ee;
     font-weight: 600;
@@ -873,6 +1064,14 @@ footer {
 }
 
 @media (max-width: 700px) {
+    .site-summary-bar {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .site-summary-title {
+        grid-column: 1 / -1;
+    }
+
     .results-summary-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
@@ -958,6 +1157,18 @@ footer {
 
     .summary-value {
         font-size: 2.2em;
+    }
+
+    .results-tabs {
+        overflow-x: auto;
+    }
+
+    .results-tab {
+        white-space: nowrap;
+    }
+
+    .executive-grid {
+        grid-template-columns: 1fr;
     }
 
     table {

@@ -191,12 +191,13 @@ Error response format (FastAPI):
 
 ### POST /api/investment
 
-Estimates investment returns for a range of candidate bay counts. Uses the same
-profile payload as /api/calculate plus an investment block. For each bay count,
-a finite-capacity loss simulation (arrivals that find every bay occupied are
-turned away) estimates lost/served sessions per day; served sessions drive the
-annual gross margin, netted against opex per bay, over a fixed horizon
-(default 10 years).
+Estimates investment returns for a range of candidate bay counts under all
+three 10-year demand forecasts: Government Policy Drift, Steady Mandate, and
+Accelerated Adoption. Uses the same profile payload as /api/calculate plus an
+investment block. For each bay count and forecast year, a finite-capacity loss
+simulation (arrivals that find every bay occupied are turned away) estimates
+lost/served sessions per day. The resulting annual gross margins, net of opex
+per bay, form the scenario's 10-year cash-flow series.
 
 Request format:
 
@@ -253,29 +254,35 @@ Successful response format:
     "bay_min": 3,
     "bay_max": 8
   },
-  "scenarios": [
+  "scenario_groups": [
     {
-      "bays": 3,
-      "capex": 120000,
-      "lost_sessions_per_day": 9.0,
-      "served_sessions_per_day": 87.0,
-      "avg_energy_per_session_kwh": 31.7,
-      "annual_gross_margin": 356368,
-      "annual_opex": 6000,
-      "annual_net_cashflow": 350368,
-      "simple_payback_years": 0.35,
-      "irr_pct": 288.6,
-      "discounted_payback_years": 0.37,
-      "npv": 2204157
+      "scenario_name": "Steady Mandate (base case)",
+      "scenarios": [
+        {
+          "bays": 3,
+          "capex": 120000,
+          "lost_sessions_per_day": 9.0,
+          "served_sessions_per_day": 87.0,
+          "avg_energy_per_session_kwh": 31.7,
+          "annual_gross_margin": 356368,
+          "annual_opex": 6000,
+          "annual_net_cashflow": 350368,
+          "simple_payback_years": 0.35,
+          "irr_pct": 288.6,
+          "discounted_payback_years": 0.37,
+          "npv": 2204157
+        }
+      ]
     }
   ]
 }
 ```
 
-- irr_pct and simple_payback_years are null when annual net cash flow is not
-  positive.
-- discounted_payback_years is null when the investment never pays back; values
-  above horizon_years are rendered as ">N yrs" by the frontend.
+- `annual_gross_margin`, `annual_opex`, and `annual_net_cashflow` describe
+  Year 1. `simple_payback_years`, `irr_pct`, `discounted_payback_years`, and
+  `npv` use the full scenario-specific forecast cash-flow series.
+- Payback fields are null when the investment does not pay back within the
+  forecast horizon.
 
 ### GET /api/presets
 

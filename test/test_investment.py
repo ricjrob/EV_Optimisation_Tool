@@ -65,6 +65,36 @@ class FinancialMathTests(unittest.TestCase):
         expected = -100.0 + 20.0 * self.calc._annuity_factor(0.08, 10)
         self.assertAlmostEqual(self.calc._npv(100.0, 20.0), expected)
 
+    def test_forecast_cashflows_use_each_years_operating_result(self):
+        result = self.calc.evaluate_forecast_cashflows(
+            bays=1,
+            annual_operations=[
+                (3.0, 10.0, 1.0),
+                (2.0, 20.0, 1.0),
+            ],
+        )
+        first_year_cashflow = 10.0 * 365.0 * 0.35
+        second_year_cashflow = 20.0 * 365.0 * 0.35
+
+        self.assertAlmostEqual(result.annual_gross_margin, first_year_cashflow)
+        self.assertAlmostEqual(result.annual_net_cashflow, first_year_cashflow)
+        self.assertAlmostEqual(
+            result.npv,
+            -100.0
+            + first_year_cashflow / 1.08
+            + second_year_cashflow / 1.08**2,
+        )
+        self.assertLess(result.simple_payback_years, 1.0)
+
+    def test_forecast_payback_is_none_when_horizon_does_not_recover_capex(self):
+        result = self.calc.evaluate_forecast_cashflows(
+            bays=10,
+            annual_operations=[(0.0, 1.0, 0.01)] * 2,
+        )
+
+        self.assertIsNone(result.simple_payback_years)
+        self.assertIsNone(result.discounted_payback_years)
+
     def test_input_validation(self):
         with self.assertRaises(ValueError):
             InvestmentCalculator(cost_per_bay=0, gross_margin_per_kwh=0.35)

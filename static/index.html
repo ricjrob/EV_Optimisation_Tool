@@ -5,15 +5,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EV Charging Bay Calculator</title>
-    <link rel="stylesheet" href="/static/style.css?v=6">
+    <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 
 <body>
     <div class="container">
         <header>
             <h1>⚡ EV Charging Bay Calculator</h1>
-            <p class="subtitle">Estimate the number of charging bays needed for your site</p>
+            <p class="subtitle">Plan demand, infrastructure, power, and investment for your EV charging site</p>
         </header>
+
+        <aside id="site-summary-bar" class="site-summary-bar" aria-label="Current site configuration">
+            <div class="site-summary-title">Site Configuration</div>
+            <div class="site-summary-metric"><span>Bays</span><strong id="site-summary-bays">-</strong></div>
+            <div class="site-summary-metric"><span>Chargers</span><strong id="site-summary-chargers">-</strong></div>
+            <div class="site-summary-metric"><span>Power</span><strong id="site-summary-power">-</strong></div>
+            <div class="site-summary-metric"><span>Service level</span><strong id="site-summary-service">-</strong></div>
+            <div class="site-summary-metric"><span>IRR</span><strong id="site-summary-irr">-</strong></div>
+            <div class="site-summary-metric"><span>NPV</span><strong id="site-summary-npv">-</strong></div>
+        </aside>
 
         <main>
             <div class="content-wrapper">
@@ -144,16 +154,14 @@
                     </div>
 
                     <div id="results-tabs" class="results-tabs hidden">
-                        <button type="button" class="results-tab active" data-tab="bay-requirements">Bay
-                            Requirements</button>
-                        <button type="button" class="results-tab" data-tab="distributions">Charging
-                            Distributions</button>
-                        <button type="button" class="results-tab" data-tab="investment">Investment
+                        <button type="button" class="results-tab active" data-tab="demand-capacity"><span>1</span> Demand
+                            &amp; Capacity</button>
+                        <button type="button" class="results-tab" data-tab="hardware-power"><span>2</span> Hardware
+                            &amp; Power</button>
+                        <button type="button" class="results-tab" data-tab="financial-evaluation"><span>3</span> Financial
+                            Evaluation</button>
+                        <button type="button" class="results-tab" data-tab="executive-summary"><span>4</span> Executive
                             Summary</button>
-                        <button type="button" class="results-tab" data-tab="forecast">10-Year
-                            Forecast</button>
-                        <button type="button" class="results-tab" data-tab="power-config">Power &
-                            Chargers</button>
                     </div>
 
                     <div id="tab-bay-requirements">
@@ -209,10 +217,9 @@
 
                     <div id="tab-investment" class="hidden">
                         <div class="investment-panel">
+                            <p class="workflow-eyebrow">Step 3</p>
                             <h3>Investment Assumptions</h3>
-                            <p class="investment-note">Analysis uses the day selected in the results
-                                day picker above, over a 10-year horizon. Adjust the assumptions and
-                                re-run at any time.</p>
+                            <p class="investment-note">Financial evaluation uses the current installed-bay and demand configuration. Adjust assumptions to recalculate automatically; the sensitivity analysis remains centred on the demand recommendation.</p>
                             <div class="investment-inputs">
                                 <div class="form-group">
                                     <label for="inv-cost-per-bay">Cost per Bay (£):</label>
@@ -238,39 +245,7 @@
 
                         <div id="investment-summary" class="investment-summary hidden"></div>
 
-                        <div id="investment-table" class="results-table hidden">
-                            <h3>Bay Count Scenarios</h3>
-                            <div class="table-wrapper">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>Bays</th>
-                                            <th>Capex</th>
-                                            <th>Served Sessions / Day</th>
-                                            <th>Lost Sessions / Day</th>
-                                            <th>Annual Margin</th>
-                                            <th>Annual Net Cash Flow</th>
-                                            <th>Simple Payback</th>
-                                            <th>IRR (10 yr)</th>
-                                            <th>Discounted Payback</th>
-                                            <th>NPV (10 yr)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="investment-tbody"></tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div id="investment-charts" class="dist-charts-grid hidden">
-                            <div class="dist-chart-section results-chart">
-                                <h3>IRR vs Number of Bays</h3>
-                                <canvas id="irr-chart-canvas"></canvas>
-                            </div>
-                            <div class="dist-chart-section results-chart">
-                                <h3>Payback Period vs Number of Bays</h3>
-                                <canvas id="payback-chart-canvas"></canvas>
-                            </div>
-                        </div>
+                        <div id="investment-results" class="hidden"></div>
                     </div>
 
                     <div id="tab-forecast" class="hidden">
@@ -309,6 +284,15 @@
                         <div id="forecast-tables" class="hidden"></div>
                     </div>
 
+                    <div id="tab-executive" class="hidden">
+                        <div class="workflow-stage-intro">
+                            <p class="workflow-eyebrow">Step 4</p>
+                            <h3>Executive Summary</h3>
+                            <p>Board-level recommendation generated from the current demand, hardware, power, and financial configuration.</p>
+                        </div>
+                        <div id="executive-summary-content" class="executive-summary-content"></div>
+                    </div>
+
                     <div id="tab-power-config" class="hidden">
                         <div class="investment-panel">
                             <h3>Peak Power Needs per Bay</h3>
@@ -339,14 +323,19 @@
                         </div>
 
                         <div class="investment-panel" style="margin-top: 24px;">
-                            <h3>Stage 2: Chargepoint Configuration & Dynamic Load Balancing</h3>
-                            <p class="investment-note">Enter your deployed charger hardware configuration. Power is
-                                dynamically load-balanced across active bays on each charger. Re-running the model
-                                measures power capping, dwell time impact, and longer customer sessions.</p>
+                            <p class="workflow-eyebrow">Step 2</p>
+                            <h3>Hardware &amp; Power Design</h3>
+                            <p class="investment-note">The installed-bay override and charger assumptions are the single design basis for power, financial evaluation, and the executive summary.</p>
                             <div class="investment-inputs">
                                 <div class="form-group">
-                                    <label for="power-num-chargers">Number of Chargers Deployed:</label>
-                                    <input type="number" id="power-num-chargers" min="1" step="1" value="2">
+                                    <label for="installed-bays">Installed Bays:</label>
+                                    <input type="number" id="installed-bays" min="1" step="1" value="6">
+                                    <small>Defaults to the demand recommendation. Change only to evaluate a deliberate override.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="power-num-chargers">Chargers Required:</label>
+                                    <input type="number" id="power-num-chargers" min="1" step="1" value="3" readonly>
+                                    <small>Derived from installed bays and bays per charger.</small>
                                 </div>
                                 <div class="form-group">
                                     <label for="power-max-kw">Max kW Output per Charger:</label>
@@ -357,7 +346,8 @@
                                     <input type="number" id="power-bays-per-charger" min="1" step="1" value="2">
                                 </div>
                             </div>
-                            <button id="run-power-sim-btn" class="btn btn-primary">Run Power & Charger
+                            <div id="hardware-dependency-chain" class="hardware-dependency-chain"></div>
+                            <button id="run-power-sim-btn" class="btn btn-primary">Refresh Power &amp; Charger
                                 Simulation</button>
                             <div id="power-sim-error" class="error-message"></div>
                         </div>
@@ -377,7 +367,8 @@
         </footer>
     </div>
 
-    <script src="/static/script.js?v=17"></script>
+    <script src="/static/planning-services.js?v=3"></script>
+    <script src="/static/script.js?v=18"></script>
 </body>
 
 </html>

@@ -227,6 +227,60 @@ def run_all_scenarios(sim_model: SimModel) -> pd.DataFrame:
     return pd.DataFrame(all_results)
 
 
+def run_investment_scenarios(
+    sim_model: SimModel,
+    investment_calculator: InvestmentCalculator,
+    bay_counts: list[int],
+) -> list[dict]:
+    """Evaluate each candidate bay count against every ten-year forecast.
+
+    Capex is incurred upfront. Revenue and opex are then evaluated from the
+    simulated operating results for each individual forecast year.
+    """
+    scenario_groups: list[dict] = []
+    for scenario in SCENARIOS.values():
+        annual_operations = {bays: [] for bays in bay_counts}
+
+        for year in range(1, HORIZON_YEARS + 1):
+            year_profile = _year_profile(sim_model.base_profile, scenario, year)
+            year_curve = _year_curve_overrides(
+                sim_model.calculator, scenario, year
+            )
+            year_calculator = InvestmentCalculator(
+                cost_per_bay=investment_calculator.cost_per_bay,
+                gross_margin_per_kwh=investment_calculator.gross_margin_per_kwh,
+                discount_rate_pct=investment_calculator.discount_rate * 100.0,
+                opex_per_bay=investment_calculator.opex_per_bay,
+                horizon_years=investment_calculator.horizon_years,
+                curve_preset=year_curve,
+            )
+            yearly_results = year_calculator.simulate_scenarios(
+                year_profile, bay_counts, sim_model.simulation_runs
+            )
+            for result in yearly_results:
+                annual_operations[result.bays].append(
+                    (
+                        result.lost_sessions_per_day,
+                        result.served_sessions_per_day,
+                        result.avg_energy_per_session_kwh,
+                    )
+                )
+
+        scenario_groups.append(
+            {
+                "scenario_name": scenario.name,
+                "scenarios": [
+                    investment_calculator.evaluate_forecast_cashflows(
+                        bays, annual_operations[bays]
+                    ).to_dict()
+                    for bays in bay_counts
+                ],
+            }
+        )
+
+    return scenario_groups
+
+
 def recommended_bays(scenario_records: list[dict]) -> int:
     """The single "recommended bays" figure used consistently across the
     Bays Needed, Investment, and Power & Chargers modules: the Steady Mandate

@@ -28,9 +28,15 @@ It is intended as a transparent baseline that can be extended with richer foreca
 - Copy-day and compare-day tools
 - Presets (9-to-5, Retail, Overnight)
 - Drag-to-edit bars plus numeric hour-by-hour inputs
-- Investment summary per bay count: 10-year IRR, discounted payback, and lost
-  customer sessions from cost-per-bay, gross margin per kWh, discount rate, and
-  opex-per-bay inputs
+- Unified four-step planning workflow: Demand & Capacity, Hardware & Power,
+  Financial Evaluation, and Executive Summary
+- A sticky Site Configuration bar that keeps installed bays, charger count,
+  peak power, service level, IRR, and NPV visible throughout the workflow
+- Shared client-side site configuration that propagates the demand recommendation
+  into charger sizing, grid requirements, financial analysis, and the executive
+  recommendation
+- Investment sensitivity centred on the recommended bay count, with scenario-specific
+  10-year IRR, discounted payback, and NPV
 
 ## Repository Structure
 
@@ -45,6 +51,7 @@ Important files and folders:
 - src/InvestmentResult.py: investment scenario result container
 - static/index.html: frontend structure
 - static/script.js: frontend state, validation, API calls
+- static/planning-services.js: shared Site Configuration state and workflow domain services
 - static/style.css: frontend styling
 - WEB_FRONTEND_README.md: frontend and API contract details
 
@@ -141,5 +148,4 @@ For complete request and response examples, see WEB_FRONTEND_README.md.
 ## Contributing
 
 Contributions and suggestions are welcome.
-
 

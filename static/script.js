@@ -54,9 +54,7 @@ const invOpexBayInput = document.getElementById('inv-opex-bay');
 const runInvestmentBtn = document.getElementById('run-investment-btn');
 const investmentError = document.getElementById('investment-error');
 const investmentSummary = document.getElementById('investment-summary');
-const investmentTable = document.getElementById('investment-table');
-const investmentCharts = document.getElementById('investment-charts');
-const investmentTbody = document.getElementById('investment-tbody');
+const investmentResults = document.getElementById('investment-results');
 
 const tabForecast = document.getElementById('tab-forecast');
 const forecastBayCountInput = document.getElementById('forecast-bay-count');
@@ -75,14 +73,57 @@ const powerDetailNote = document.getElementById('power-detail-note');
 const powerNumChargersInput = document.getElementById('power-num-chargers');
 const powerMaxKwInput = document.getElementById('power-max-kw');
 const powerBaysPerChargerInput = document.getElementById('power-bays-per-charger');
+const installedBaysInput = document.getElementById('installed-bays');
 const runPowerSimBtn = document.getElementById('run-power-sim-btn');
 const powerSimError = document.getElementById('power-sim-error');
 const powerSimResults = document.getElementById('power-sim-results');
+const hardwareDependencyChain = document.getElementById('hardware-dependency-chain');
+const tabExecutive = document.getElementById('tab-executive');
+const executiveSummaryContent = document.getElementById('executive-summary-content');
+const siteSummaryBays = document.getElementById('site-summary-bays');
+const siteSummaryChargers = document.getElementById('site-summary-chargers');
+const siteSummaryPower = document.getElementById('site-summary-power');
+const siteSummaryService = document.getElementById('site-summary-service');
+const siteSummaryIrr = document.getElementById('site-summary-irr');
+const siteSummaryNpv = document.getElementById('site-summary-npv');
 
 const gbpFormatter = new Intl.NumberFormat('en-GB', {
     style: 'currency',
     currency: 'GBP',
     maximumFractionDigits: 0
+});
+
+const {
+    SiteConfigurationStore,
+    DemandPlanningService,
+    PowerSizingService,
+    FinancialAnalysisService,
+    ExecutiveSummaryService
+} = window.PlanningServices;
+
+const BASE_FORECAST_SCENARIO = 'Steady Mandate (base case)';
+const siteConfiguration = new SiteConfigurationStore({
+    recommendedBays: null,
+    installedBays: null,
+    userOverrodeBays: false,
+    baysPerCharger: Number(powerBaysPerChargerInput.value),
+    chargerCount: null,
+    chargerPowerKw: Number(powerMaxKwInput.value),
+    peakPowerKw: null,
+    gridRequirementKw: null,
+    dailyEnergyKwh: null,
+    capexPerBay: Number(invCostPerBayInput.value),
+    opexPerBay: Number(invOpexBayInput.value),
+    grossMarginPerKwh: Number(invMarginKwhInput.value),
+    discountRate: Number(invDiscountRateInput.value),
+    selectedForecastScenario: BASE_FORECAST_SCENARIO,
+    serviceLevel: null,
+    servedSessions: null,
+    lostSessions: null,
+    financialScenario: null,
+    forecastRisk: [],
+    formatCurrency: value => typeof value === 'number' ? gbpFormatter.format(value) : 'n/a',
+    formatPayback: value => formatPaybackYears(value, 10)
 });
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -124,7 +165,7 @@ const state = {
     dayValues: initDayValues(),
     resultSet: null,
     selectedResultDay: 'Mon',
-    resultsActiveTab: 'bay-requirements',
+    resultsActiveTab: 'demand-capacity',
     lastProfileConfig: null,
     investmentResult: null,
     forecastResult: null,
@@ -134,6 +175,185 @@ const state = {
     activeConfigTab: 'demand',
     curvePreset: Object.fromEntries(CURVE_PARAMETERS.map(parameter => [parameter.key, parameter.value]))
 };
+
+let powerRecalculationTimer = null;
+let financialRecalculationTimer = null;
+
+function renderSiteConfiguration(config) {
+    siteSummaryBays.textContent = config.installedBays ?? '-';
+    siteSummaryChargers.textContent = config.chargerCount ?? '-';
+    siteSummaryPower.textContent = config.peakPowerKw === null
+        ? '-'
+        : `${config.peakPowerKw.toFixed(0)} kW`;
+    siteSummaryService.textContent = config.serviceLevel === null
+        ? '-'
+        : `${(config.serviceLevel * 100).toFixed(1)}%`;
+    siteSummaryIrr.textContent = config.financialScenario?.irr_pct === null || !config.financialScenario
+        ? '-'
+        : `${config.financialScenario.irr_pct.toFixed(1)}%`;
+    siteSummaryNpv.textContent = config.financialScenario
+        ? gbpFormatter.format(config.financialScenario.npv)
+        : '-';
+
+    if (config.installedBays) {
+        installedBaysInput.value = String(config.installedBays);
+        forecastBayCountInput.value = String(config.installedBays);
+    }
+    if (config.chargerCount) {
+        powerNumChargersInput.value = String(config.chargerCount);
+    }
+    if (config.chargerPowerKw) {
+        powerMaxKwInput.value = String(config.chargerPowerKw);
+    }
+    if (config.baysPerCharger) {
+        powerBaysPerChargerInput.value = String(config.baysPerCharger);
+    }
+
+    hardwareDependencyChain.textContent = config.chargerCount
+        ? `${config.installedBays} bays → ${config.chargerCount} chargers → ${config.gridRequirementKw.toFixed(0)} kW grid capacity`
+        : 'Complete demand planning to size chargers and grid capacity.';
+
+    document.querySelectorAll('.results-tab').forEach(button => {
+        const tab = button.dataset.tab;
+        const complete =
+            (tab === 'demand-capacity' && config.recommendedBays) ||
+            (tab === 'hardware-power' && config.peakPowerKw !== null) ||
+            (tab === 'financial-evaluation' && config.financialScenario) ||
+            (tab === 'executive-summary' && config.financialScenario && config.peakPowerKw !== null);
+        button.classList.toggle('complete', Boolean(complete));
+    });
+
+    if (!tabExecutive.classList.contains('hidden')) {
+        renderExecutiveSummary();
+    }
+}
+
+function updateHardwareConfiguration() {
+    const installedBays = Number(installedBaysInput.value);
+    const baysPerCharger = Number(powerBaysPerChargerInput.value);
+    const chargerPowerKw = Number(powerMaxKwInput.value);
+    if (!Number.isFinite(installedBays) || installedBays < 1 ||
+        !Number.isFinite(baysPerCharger) || baysPerCharger < 1 ||
+        !Number.isFinite(chargerPowerKw) || chargerPowerKw <= 0) {
+        return null;
+    }
+
+    return PowerSizingService.deriveHardware(
+        installedBays, baysPerCharger, chargerPowerKw
+    );
+}
+
+function handleHardwareDesignChange() {
+    const hardware = updateHardwareConfiguration();
+    if (!hardware) {
+        showPowerSimError('Installed bays, bays per charger, and charger power must be positive numbers.');
+        return;
+    }
+
+    siteConfiguration.update({
+        ...hardware,
+        userOverrodeBays: true,
+        peakPowerKw: null,
+        dailyEnergyKwh: null,
+        financialScenario: null
+    });
+    if (!state.lastProfileConfig) {
+        return;
+    }
+
+    clearTimeout(powerRecalculationTimer);
+    powerRecalculationTimer = setTimeout(handlePowerSimulation, 250);
+    clearTimeout(financialRecalculationTimer);
+    financialRecalculationTimer = setTimeout(handleInvestmentAnalysis, 250);
+}
+
+function handleFinancialAssumptionChange() {
+    const capexPerBay = Number(invCostPerBayInput.value);
+    const opexPerBay = Number(invOpexBayInput.value);
+    const grossMarginPerKwh = Number(invMarginKwhInput.value);
+    const discountRate = Number(invDiscountRateInput.value);
+    if (!Number.isFinite(capexPerBay) || capexPerBay <= 0 ||
+        !Number.isFinite(opexPerBay) || opexPerBay < 0 ||
+        !Number.isFinite(grossMarginPerKwh) || grossMarginPerKwh < 0 ||
+        !Number.isFinite(discountRate) || discountRate < 0 || discountRate > 50) {
+        return;
+    }
+
+    siteConfiguration.update({
+        capexPerBay,
+        opexPerBay,
+        grossMarginPerKwh,
+        discountRate,
+        financialScenario: null
+    });
+    if (!state.lastProfileConfig || !siteConfiguration.value.recommendedBays) {
+        return;
+    }
+
+    clearTimeout(financialRecalculationTimer);
+    financialRecalculationTimer = setTimeout(handleInvestmentAnalysis, 250);
+}
+
+function renderExecutiveSummary() {
+    const config = siteConfiguration.value;
+    const financial = config.financialScenario;
+    const riskRows = config.forecastRisk || [];
+    if (!config.recommendedBays) {
+        executiveSummaryContent.innerHTML = '<p class="investment-note">Complete Demand &amp; Capacity Planning to generate the executive recommendation.</p>';
+        return;
+    }
+
+    const financialHtml = financial
+        ? `
+            <div class="executive-metric"><span>CAPEX</span><strong>${gbpFormatter.format(financial.capex)}</strong></div>
+            <div class="executive-metric"><span>Annual cash flow</span><strong>${gbpFormatter.format(financial.annual_net_cashflow)}</strong></div>
+            <div class="executive-metric"><span>IRR</span><strong>${financial.irr_pct === null ? 'n/a' : `${financial.irr_pct.toFixed(1)}%`}</strong></div>
+            <div class="executive-metric"><span>NPV</span><strong>${gbpFormatter.format(financial.npv)}</strong></div>
+            <div class="executive-metric"><span>Discounted payback</span><strong>${formatPaybackYears(financial.discounted_payback_years, 10)}</strong></div>`
+        : '<p class="investment-note">Financial evaluation is pending.</p>';
+
+    executiveSummaryContent.innerHTML = `
+        <div class="executive-grid">
+            <section class="executive-card">
+                <h4>Capacity</h4>
+                <div class="executive-metric"><span>Recommended bays</span><strong>${config.recommendedBays}</strong></div>
+                <div class="executive-metric"><span>Installed bays</span><strong>${config.installedBays}</strong></div>
+                <div class="executive-metric"><span>Service level</span><strong>${config.serviceLevel === null ? 'n/a' : `${(config.serviceLevel * 100).toFixed(1)}%`}</strong></div>
+                <div class="executive-metric"><span>Served sessions</span><strong>${config.servedSessions === null ? 'n/a' : `${config.servedSessions.toFixed(1)}/day`}</strong></div>
+                <div class="executive-metric"><span>Lost sessions</span><strong>${config.lostSessions === null ? 'n/a' : `${config.lostSessions.toFixed(1)}/day`}</strong></div>
+            </section>
+            <section class="executive-card">
+                <h4>Infrastructure</h4>
+                <div class="executive-metric"><span>Chargers required</span><strong>${config.chargerCount ?? 'n/a'}</strong></div>
+                <div class="executive-metric"><span>Charger rating</span><strong>${config.chargerPowerKw} kW</strong></div>
+                <div class="executive-metric"><span>Peak site load</span><strong>${config.peakPowerKw === null ? 'Pending' : `${config.peakPowerKw.toFixed(1)} kW`}</strong></div>
+                <div class="executive-metric"><span>Grid requirement</span><strong>${config.gridRequirementKw === null ? 'Pending' : `${config.gridRequirementKw.toFixed(0)} kW`}</strong></div>
+                <div class="executive-metric"><span>Daily energy</span><strong>${config.dailyEnergyKwh === null ? 'Pending' : `${config.dailyEnergyKwh.toFixed(0)} kWh`}</strong></div>
+            </section>
+            <section class="executive-card">
+                <h4>Financial</h4>
+                ${financialHtml}
+            </section>
+        </div>
+        <section class="executive-card executive-risk-card">
+            <h4>Year 10 scenario risk</h4>
+            <div class="risk-table-wrapper">
+                <table>
+                    <thead><tr><th>Scenario</th><th>Demand</th><th>Required Bays</th><th>Installed Bays</th><th>Service Level</th><th>Lost Sessions</th></tr></thead>
+                    <tbody>${riskRows.map(row => `
+                        <tr><td>${row.scenario_name}</td><td>${row.total_sessions.toFixed(0)}/day</td><td>${Math.ceil(row.required_bays)}</td><td>${config.installedBays}</td><td>${(row.service_level * 100).toFixed(1)}%</td><td>${row.queue_length.toFixed(1)}/day</td></tr>
+                    `).join('')}</tbody>
+                </table>
+            </div>
+        </section>
+        <section class="recommendation-narrative">
+            <h4>Recommendation</h4>
+            <p>${ExecutiveSummaryService.createNarrative(config, riskRows)}</p>
+        </section>
+    `;
+}
+
+siteConfiguration.subscribe(renderSiteConfiguration);
 
 function renderCurvePresetEditor() {
     curveParameterGrid.innerHTML = '';
@@ -735,6 +955,12 @@ loadExampleBtn.addEventListener('click', loadExample);
 runInvestmentBtn.addEventListener('click', handleInvestmentAnalysis);
 runForecastBtn.addEventListener('click', handleForecastScenarios);
 runPowerSimBtn.addEventListener('click', handlePowerSimulation);
+installedBaysInput.addEventListener('change', handleHardwareDesignChange);
+powerBaysPerChargerInput.addEventListener('change', handleHardwareDesignChange);
+powerMaxKwInput.addEventListener('change', handleHardwareDesignChange);
+[invCostPerBayInput, invOpexBayInput, invMarginKwhInput, invDiscountRateInput].forEach(input => {
+    input.addEventListener('change', handleFinancialAssumptionChange);
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     initDistributionEditor();
@@ -749,31 +975,26 @@ function initResultsTabs() {
             document.querySelectorAll('.results-tab').forEach(b => {
                 b.classList.toggle('active', b === btn);
             });
-            tabBayRequirements.classList.toggle('hidden', state.resultsActiveTab !== 'bay-requirements');
-            tabDistributions.classList.toggle('hidden', state.resultsActiveTab !== 'distributions');
-            tabInvestment.classList.toggle('hidden', state.resultsActiveTab !== 'investment');
-            tabForecast.classList.toggle('hidden', state.resultsActiveTab !== 'forecast');
-            tabPowerConfig.classList.toggle('hidden', state.resultsActiveTab !== 'power-config');
-            if (state.resultsActiveTab === 'bay-requirements' && state.forecastResult) {
+            tabBayRequirements.classList.toggle('hidden', state.resultsActiveTab !== 'demand-capacity');
+            tabDistributions.classList.add('hidden');
+            tabInvestment.classList.toggle('hidden', state.resultsActiveTab !== 'financial-evaluation');
+            tabForecast.classList.add('hidden');
+            tabPowerConfig.classList.toggle('hidden', state.resultsActiveTab !== 'hardware-power');
+            tabExecutive.classList.toggle('hidden', state.resultsActiveTab !== 'executive-summary');
+            if (state.resultsActiveTab === 'demand-capacity' && state.forecastResult) {
                 renderForecastResult();
             }
-            if (state.resultsActiveTab === 'distributions' && state.resultSet) {
-                const selected = state.resultSet.dayResults[state.selectedResultDay];
-                if (selected) {
-                    renderDistributionsPanel(selected.soc_samples || [], selected.duration_samples || []);
-                }
-            }
-            if (state.resultsActiveTab === 'investment' && state.investmentResult) {
+            if (state.resultsActiveTab === 'financial-evaluation' && state.investmentResult) {
                 renderInvestmentResult();
             }
-            if (state.resultsActiveTab === 'forecast' && state.forecastResult) {
-                renderForecastResult();
-            }
-            if (state.resultsActiveTab === 'power-config' && state.peakPowerNeeds) {
+            if (state.resultsActiveTab === 'hardware-power' && state.peakPowerNeeds) {
                 renderPowerNeeds(state.peakPowerNeeds);
                 if (state.powerSimulationResult) {
                     renderPowerSimulationResult(state.powerSimulationResult);
                 }
+            }
+            if (state.resultsActiveTab === 'executive-summary') {
+                renderExecutiveSummary();
             }
         });
     });
@@ -802,6 +1023,24 @@ function displayResults(result) {
     };
 
     state.selectedResultDay = dayResults[result.active_day] ? result.active_day : dayOrder[0];
+    const initialRecommendedBays = Math.max(1, state.resultSet.overallPeakBays);
+    const hardware = PowerSizingService.deriveHardware(
+        initialRecommendedBays,
+        Number(powerBaysPerChargerInput.value),
+        Number(powerMaxKwInput.value)
+    );
+    siteConfiguration.update({
+        recommendedBays: initialRecommendedBays,
+        ...hardware,
+        userOverrodeBays: false,
+        serviceLevel: null,
+        servedSessions: null,
+        lostSessions: null,
+        peakPowerKw: null,
+        dailyEnergyKwh: null,
+        financialScenario: null,
+        forecastRisk: []
+    });
 
     maxBaysDisplay.textContent = state.resultSet.overallPeakBays;
     peakDayDisplay.textContent = state.resultSet.peakDay;
@@ -818,8 +1057,8 @@ function displayResults(result) {
     // New demand profile invalidates any previous investment analysis
     state.investmentResult = null;
     investmentSummary.classList.add('hidden');
-    investmentTable.classList.add('hidden');
-    investmentCharts.classList.add('hidden');
+    investmentResults.classList.add('hidden');
+    investmentResults.innerHTML = '';
     clearInvestmentError();
 
     // New demand profile invalidates any previous forecast scenario run
@@ -848,7 +1087,7 @@ function displayResults(result) {
 
     // Automatically run the 10-year forecast using the just-calculated peak bays
     // as the installed bay count, so the outlook appears in the Bays Needed tab.
-    forecastBayCountInput.value = String(Math.max(1, state.resultSet.overallPeakBays));
+    forecastBayCountInput.value = String(siteConfiguration.value.installedBays);
     runAutoForecastScenarios();
 }
 
@@ -1238,17 +1477,14 @@ async function handleInvestmentAnalysis() {
         return;
     }
 
-    // Default range brackets the selected day's peak recommendation and its CI,
-    // covering "one more bay than the CI suggests" and "management adds two".
-    const selected = state.resultSet.dayResults[state.selectedResultDay] || {};
-    const ciLow = typeof selected.peak_bays_ci_low === 'number'
-        ? selected.peak_bays_ci_low
-        : (selected.peak_bays ?? 1);
-    const ciHigh = typeof selected.peak_bays_ci_high === 'number'
-        ? selected.peak_bays_ci_high
-        : (selected.peak_bays ?? 1);
-    const bayMin = Math.max(1, Math.floor(ciLow) - 1);
-    const bayMax = Math.min(bayMin + 11, Math.ceil(ciHigh) + 2);
+    const recommendedBays = siteConfiguration.value.recommendedBays;
+    const installedBays = siteConfiguration.value.installedBays;
+    if (!recommendedBays || !installedBays) {
+        showInvestmentError('Complete demand and hardware planning before financial evaluation.');
+        return;
+    }
+    const bayMin = Math.max(1, Math.min(recommendedBays - 2, installedBays));
+    const bayMax = Math.max(recommendedBays + 2, installedBays);
 
     // Analyse the day chosen in the results day picker, using the last profile
     const profile = { ...state.lastProfileConfig };
@@ -1292,6 +1528,12 @@ async function handleInvestmentAnalysis() {
         }
 
         state.investmentResult = await response.json();
+        const selectedFinancialScenario = FinancialAnalysisService.getSelectedScenario(
+            state.investmentResult,
+            siteConfiguration.value.selectedForecastScenario,
+            siteConfiguration.value.installedBays
+        );
+        siteConfiguration.update({ financialScenario: selectedFinancialScenario });
         renderInvestmentResult();
     } catch (error) {
         showInvestmentError('Investment analysis error: ' + error.message);
@@ -1307,19 +1549,65 @@ function renderInvestmentResult() {
         return;
     }
 
-    const scenarios = result.scenarios || [];
+    const scenarioGroups = result.scenario_groups || [];
     const horizon = result.inputs?.horizon_years ?? 10;
-    const selectedDayResult = state.resultSet?.dayResults?.[state.selectedResultDay];
-    const recommendedBays = selectedDayResult ? selectedDayResult.peak_bays : null;
-
-    const avgEnergy = scenarios.length > 0 ? scenarios[0].avg_energy_per_session_kwh : 0;
+    const recommendedBays = siteConfiguration.value.recommendedBays;
     investmentSummary.textContent =
         `Day analysed: ${result.day} · ${result.total_sessions} sessions/day · ` +
-        `${result.simulation_runs} simulation run(s) · avg ${avgEnergy.toFixed(1)} kWh dispensed per session` +
-        (recommendedBays !== null ? ` · model recommendation: ${recommendedBays} bays (highlighted)` : '');
+        `Each scenario applies its own 10-year demand and charging forecast to the investment cash flows. ` +
+        `Annual margin and net cash flow are Year 1 values; return metrics use all ${horizon} forecast years.` +
+        (recommendedBays !== null ? ` The current model recommendation is ${recommendedBays} bays (highlighted).` : '');
     investmentSummary.classList.remove('hidden');
 
-    investmentTbody.innerHTML = '';
+    investmentResults.innerHTML = '';
+    scenarioGroups.forEach((group, index) => {
+        investmentResults.appendChild(
+            createInvestmentScenarioGroup(group, index, horizon, recommendedBays)
+        );
+    });
+    investmentResults.classList.toggle('hidden', scenarioGroups.length === 0);
+}
+
+function createInvestmentScenarioGroup(group, index, horizon, recommendedBays) {
+    const scenarios = group.scenarios || [];
+    const section = document.createElement('section');
+    section.className = 'investment-scenario-group';
+
+    const heading = document.createElement('h3');
+    heading.textContent = group.scenario_name;
+    section.appendChild(heading);
+
+    const description = document.createElement('p');
+    description.className = 'investment-note';
+    description.textContent =
+        `The table and both charts below apply only to the ${group.scenario_name} 10-year forecast.`;
+    section.appendChild(description);
+
+    const tableSection = document.createElement('div');
+    tableSection.className = 'results-table';
+    tableSection.innerHTML = `
+        <h4>Bay Count Scenarios</h4>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Bays</th>
+                        <th>Capex</th>
+                        <th>Served Sessions / Day</th>
+                        <th>Lost Sessions / Day</th>
+                        <th>Year 1 Annual Margin</th>
+                        <th>Year 1 Net Cash Flow</th>
+                        <th>Simple Payback</th>
+                        <th>IRR (10 yr)</th>
+                        <th>Discounted Payback</th>
+                        <th>NPV (10 yr)</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    `;
+    const tbody = tableSection.querySelector('tbody');
     scenarios.forEach(s => {
         const tr = document.createElement('tr');
         if (s.bays === recommendedBays) {
@@ -1337,19 +1625,38 @@ function renderInvestmentResult() {
             <td>${formatPaybackYears(s.discounted_payback_years, horizon)}</td>
             <td>${gbpFormatter.format(s.npv)}</td>
         `;
-        investmentTbody.appendChild(tr);
+        tbody.appendChild(tr);
     });
-    investmentTable.classList.remove('hidden');
+    section.appendChild(tableSection);
 
-    investmentCharts.classList.remove('hidden');
-    drawInvestmentLineChart('irr-chart-canvas', scenarios, [
+    const charts = document.createElement('div');
+    charts.className = 'dist-charts-grid';
+    const irrCanvasId = `irr-chart-canvas-${index}`;
+    const paybackCanvasId = `payback-chart-canvas-${index}`;
+    charts.innerHTML = `
+        <div class="dist-chart-section results-chart">
+            <h4>IRR vs Number of Bays</h4>
+            <canvas id="${irrCanvasId}"></canvas>
+        </div>
+        <div class="dist-chart-section results-chart">
+            <h4>Payback Period vs Number of Bays</h4>
+            <canvas id="${paybackCanvasId}"></canvas>
+        </div>
+    `;
+    section.appendChild(charts);
+
+    requestAnimationFrame(() => {
+        drawInvestmentLineChart(irrCanvasId, scenarios, [
         { key: 'irr_pct', label: 'IRR (%)', color: '#667eea' }
-    ], { yLabel: 'IRR (%)', yFormatter: v => `${v.toFixed(0)}%`, recommendedBays });
+        ], { yLabel: 'IRR (%)', yFormatter: v => `${v.toFixed(0)}%`, recommendedBays });
 
-    drawInvestmentLineChart('payback-chart-canvas', scenarios, [
-        { key: 'discounted_payback_years', label: 'Discounted payback', color: '#667eea' },
-        { key: 'simple_payback_years', label: 'Simple payback', color: '#f59e0b' }
-    ], { yLabel: 'Years', yFormatter: v => v.toFixed(0), recommendedBays });
+        drawInvestmentLineChart(paybackCanvasId, scenarios, [
+            { key: 'discounted_payback_years', label: 'Discounted payback', color: '#667eea' },
+            { key: 'simple_payback_years', label: 'Simple payback', color: '#f59e0b' }
+        ], { yLabel: 'Years', yFormatter: v => v.toFixed(0), recommendedBays });
+    });
+
+    return section;
 }
 
 // Multi-series line chart for investment scenarios (null values render as gaps)
@@ -1592,10 +1899,18 @@ function applyRecommendedBaysDefaults() {
     }
     recommendedBaysExplanation.textContent = text;
     recommendedBaysExplanation.classList.remove('hidden');
-    forecastBayCountInput.value = String(state.recommendedBays);
-
-    const baysPerCharger = Math.max(1, parseInt(powerBaysPerChargerInput.value, 10) || 2);
-    powerNumChargersInput.value = String(Math.max(1, Math.ceil(state.recommendedBays / baysPerCharger)));
+    const installedBays = siteConfiguration.value.userOverrodeBays
+        ? siteConfiguration.value.installedBays
+        : state.recommendedBays;
+    const hardware = PowerSizingService.deriveHardware(
+        installedBays,
+        siteConfiguration.value.baysPerCharger,
+        siteConfiguration.value.chargerPowerKw
+    );
+    siteConfiguration.update({
+        recommendedBays: state.recommendedBays,
+        ...hardware
+    });
 }
 
 async function handleForecastScenarios() {
@@ -1617,7 +1932,7 @@ async function runForecastScenarios() {
         return;
     }
 
-    const bayCount = Number(forecastBayCountInput.value);
+    const bayCount = Number(siteConfiguration.value.installedBays || forecastBayCountInput.value);
     if (!isFinite(bayCount) || bayCount < 1) {
         showForecastError('Installed bay count must be a positive number');
         return;
@@ -1659,8 +1974,25 @@ async function runForecastScenarios() {
 
         state.forecastResult = await response.json();
         state.recommendedBays = state.forecastResult.recommended_bays ?? null;
+        const baseMetrics = DemandPlanningService.getYearOneMetrics(
+            state.forecastResult, BASE_FORECAST_SCENARIO
+        );
         applyRecommendedBaysDefaults();
+        if (baseMetrics) {
+            siteConfiguration.update({
+                serviceLevel: baseMetrics.service_level,
+                servedSessions: baseMetrics.total_sessions - baseMetrics.queue_length,
+                lostSessions: baseMetrics.queue_length,
+                forecastRisk: DemandPlanningService.getYearTenRisk(state.forecastResult)
+            });
+        }
         renderForecastResult();
+        if (state.lastProfileConfig) {
+            clearTimeout(powerRecalculationTimer);
+            powerRecalculationTimer = setTimeout(handlePowerSimulation, 0);
+            clearTimeout(financialRecalculationTimer);
+            financialRecalculationTimer = setTimeout(handleInvestmentAnalysis, 0);
+        }
     } catch (error) {
         showForecastError('Forecast error: ' + error.message);
     } finally {
@@ -1940,9 +2272,13 @@ async function handlePowerSimulation() {
         return;
     }
 
-    const numChargers = parseInt(powerNumChargersInput.value, 10);
-    const maxKw = parseFloat(powerMaxKwInput.value);
-    const baysPerCharger = parseInt(powerBaysPerChargerInput.value, 10);
+    const hardware = updateHardwareConfiguration();
+    if (!hardware) {
+        showPowerSimError('Installed bays, bays per charger, and charger power must be valid positive numbers.');
+        return;
+    }
+    const { chargerCount: numChargers, chargerPowerKw: maxKw, baysPerCharger } = hardware;
+    siteConfiguration.update(hardware);
 
     if (isNaN(numChargers) || numChargers < 1) {
         showPowerSimError('Number of chargers must be at least 1');
@@ -1996,6 +2332,11 @@ async function handlePowerSimulation() {
         const result = await response.json();
         state.peakPowerNeeds = result.peak_power_needs;
         state.powerSimulationResult = result.charger_simulation;
+        siteConfiguration.update({
+            peakPowerKw: result.charger_simulation.peak_power_kw,
+            gridRequirementKw: result.charger_simulation.peak_power_kw,
+            dailyEnergyKwh: result.charger_simulation.total_energy_kwh
+        });
 
         renderPowerNeeds(result.peak_power_needs);
         renderPowerSimulationResult(result.charger_simulation);
@@ -2003,7 +2344,7 @@ async function handlePowerSimulation() {
         showPowerSimError('Power simulation error: ' + error.message);
     } finally {
         runPowerSimBtn.disabled = false;
-        runPowerSimBtn.textContent = 'Run Power & Charger Simulation';
+        runPowerSimBtn.textContent = 'Refresh Power & Charger Simulation';
     }
 }
 
