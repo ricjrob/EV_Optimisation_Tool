@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EV Charging Bay Calculator</title>
-    <link rel="stylesheet" href="/static/style.css?v=7">
+    <link rel="stylesheet" href="/static/style.css?v=9">
 </head>
 
 <body>
@@ -325,17 +325,17 @@
                         <div class="investment-panel" style="margin-top: 24px;">
                             <p class="workflow-eyebrow">Step 2</p>
                             <h3>Hardware &amp; Power Design</h3>
-                            <p class="investment-note">The installed-bay override and charger assumptions are the single design basis for power, financial evaluation, and the executive summary.</p>
+                            <p class="investment-note">The charger count and bays-per-charger assumptions are the single design basis for power, financial evaluation, and the executive summary.</p>
                             <div class="investment-inputs">
                                 <div class="form-group">
-                                    <label for="installed-bays">Installed Bays:</label>
-                                    <input type="number" id="installed-bays" min="1" step="1" value="6">
-                                    <small>Defaults to the demand recommendation. Change only to evaluate a deliberate override.</small>
+                                    <label for="installed-bays">Total Bays:</label>
+                                    <input type="number" id="installed-bays" min="1" step="1" value="6" readonly>
+                                    <small>Chargers &times; bays per charger.</small>
                                 </div>
                                 <div class="form-group">
-                                    <label for="power-num-chargers">Chargers Required:</label>
-                                    <input type="number" id="power-num-chargers" min="1" step="1" value="3" readonly>
-                                    <small>Derived from installed bays and bays per charger.</small>
+                                    <label for="power-num-chargers">Number of Chargers:</label>
+                                    <input type="number" id="power-num-chargers" min="1" step="1" value="3">
+                                    <small>Defaults to the demand recommendation. Change to evaluate a deliberate override.</small>
                                 </div>
                                 <div class="form-group">
                                     <label for="power-max-kw">Max kW Output per Charger:</label>
@@ -367,8 +367,8 @@
         </footer>
     </div>
 
-    <script src="/static/planning-services.js?v=3"></script>
-    <script src="/static/script.js?v=18"></script>
+    <script src="/static/planning-services.js?v=4"></script>
+    <script src="/static/script.js?v=21"></script>
 </body>
 
 </html>

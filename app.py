@@ -70,6 +70,7 @@ class InvestmentConfig(BaseModel):
     horizon_years: int = 10
     bay_min: int | None = None
     bay_max: int | None = None
+    bay_step: int = 1
 
 
 class InvestmentRequest(BaseModel):
@@ -500,7 +501,8 @@ async def investment_analysis(request: InvestmentRequest):
         if (
             bay_min < 1
             or bay_max < bay_min
-            or (bay_max - bay_min) >= MAX_INVESTMENT_SCENARIOS
+            or inv.bay_step < 1
+            or (bay_max - bay_min) // inv.bay_step >= MAX_INVESTMENT_SCENARIOS
         ):
             raise HTTPException(
                 status_code=400,
@@ -519,7 +521,7 @@ async def investment_analysis(request: InvestmentRequest):
                 simulation_runs=forecast_simulation_runs,
             ),
             calculator,
-            list(range(bay_min, bay_max + 1)),
+            list(range(bay_min, bay_max + 1, inv.bay_step)),
         )
 
         return {

@@ -31,19 +31,54 @@ const DemandPlanningService = {
     }
 };
 
+const ForecastInfrastructureService = {
+    getYearTenPowerPosition(forecastResult, config) {
+        const year10Bays = forecastResult?.weekly_recommendation?.year10_bays;
+        const baysPerCharger = Number(config?.baysPerCharger);
+        const chargerPowerKw = Number(config?.chargerPowerKw);
+        const chargerCount = Number(config?.chargerCount);
+
+        if (![year10Bays, baysPerCharger, chargerPowerKw, chargerCount]
+            .every(value => Number.isFinite(value) && value > 0)) {
+            return null;
+        }
+
+        const requiredChargers = Math.ceil(year10Bays / baysPerCharger);
+        return {
+            year10Bays,
+            requiredChargers,
+            gridCapacityKw: requiredChargers * chargerPowerKw,
+            additionalChargers: Math.max(0, requiredChargers - chargerCount),
+            additionalGridCapacityKw: Math.max(
+                0,
+                (requiredChargers - chargerCount) * chargerPowerKw
+            )
+        };
+    }
+};
+
 const PowerSizingService = {
-    deriveHardware(installedBays, baysPerCharger, chargerPowerKw) {
-        const safeBays = Math.max(1, Math.round(installedBays || 1));
+    // Sizes the smallest whole number of chargers covering the requested bays;
+    // installed bays are always chargers x bays per charger.
+    deriveHardware(requiredBays, baysPerCharger, chargerPowerKw) {
+        const safeBays = Math.max(1, Math.round(requiredBays || 1));
+        const safeBaysPerCharger = Math.max(1, Math.round(baysPerCharger || 1));
+        return this.deriveFromChargers(
+            Math.ceil(safeBays / safeBaysPerCharger), safeBaysPerCharger, chargerPowerKw
+        );
+    },
+
+    deriveFromChargers(chargerCount, baysPerCharger, chargerPowerKw) {
+        const safeChargers = Math.max(1, Math.round(chargerCount || 1));
         const safeBaysPerCharger = Math.max(1, Math.round(baysPerCharger || 1));
         const safeChargerPower = Math.max(1, Number(chargerPowerKw) || 1);
-        const chargerCount = Math.ceil(safeBays / safeBaysPerCharger);
         return {
-            installedBays: safeBays,
+            installedBays: safeChargers * safeBaysPerCharger,
             baysPerCharger: safeBaysPerCharger,
             chargerPowerKw: safeChargerPower,
-            chargerCount,
-            supportedBays: chargerCount * safeBaysPerCharger,
-            gridRequirementKw: chargerCount * safeChargerPower
+            chargerCount: safeChargers,
+            supportedBays: safeChargers * safeBaysPerCharger,
+            gridRequirementKw: safeChargers * safeChargerPower
         };
     }
 };
@@ -81,6 +116,7 @@ const ExecutiveSummaryService = {
 window.PlanningServices = {
     SiteConfigurationStore,
     DemandPlanningService,
+    ForecastInfrastructureService,
     PowerSizingService,
     FinancialAnalysisService,
     ExecutiveSummaryService

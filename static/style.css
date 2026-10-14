@@ -1042,6 +1042,31 @@ footer {
     margin-top: 0;
 }
 
+.investment-row-clickable {
+    cursor: pointer;
+}
+
+.investment-row-clickable:hover td {
+    background: #eef0ff;
+}
+
+.investment-row-selected td {
+    box-shadow: inset 0 -2px 0 #667eea, inset 0 2px 0 #667eea;
+}
+
+.investment-yearly-detail {
+    margin-top: 16px;
+}
+
+.investment-yearly-detail.hidden {
+    display: none;
+}
+
+.investment-yearly-capex td {
+    background: #f6f6fb;
+    font-style: italic;
+}
+
 .investment-row-recommended td {
     background: #eaf6ee;
     font-weight: 600;

@@ -62,6 +62,12 @@ The results panel has three tabs:
   (default 8%), and opex per bay inputs. Runs on demand via its own button and
   analyses the day selected in the results day picker.
 
+The Executive Summary reports the current (Year 1) installed charger and grid
+position separately from the Year 10 base-case grid capacity. The Year 10
+capacity uses the forecast's weekly Year 10 bay recommendation, the configured
+bays per charger, and the configured charger rating; it also shows the
+additional power capacity relative to the installed Year 1 design.
+
 ## API Overview
 
 ### POST /api/calculate

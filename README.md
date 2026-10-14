@@ -37,6 +37,9 @@ It is intended as a transparent baseline that can be extended with richer foreca
   recommendation
 - Investment sensitivity centred on the recommended bay count, with scenario-specific
   10-year IRR, discounted payback, and NPV
+- Executive infrastructure summary distinguishes the Year 1 installed grid
+  requirement from the Year 10 base-case grid capacity and additional power
+  capacity likely to be needed
 
 ## Repository Structure
 
@@ -148,4 +151,3 @@ For complete request and response examples, see WEB_FRONTEND_README.md.
 ## Contributing
 
 Contributions and suggestions are welcome.
-

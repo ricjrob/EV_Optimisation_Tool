@@ -98,7 +98,8 @@ const {
     DemandPlanningService,
     PowerSizingService,
     FinancialAnalysisService,
-    ExecutiveSummaryService
+    ExecutiveSummaryService,
+    ForecastInfrastructureService
 } = window.PlanningServices;
 
 const BASE_FORECAST_SCENARIO = 'Steady Mandate (base case)';
@@ -168,6 +169,7 @@ const state = {
     resultsActiveTab: 'demand-capacity',
     lastProfileConfig: null,
     investmentResult: null,
+    selectedInvestmentBays: {},
     forecastResult: null,
     recommendedBays: null,
     peakPowerNeeds: null,
@@ -229,30 +231,40 @@ function renderSiteConfiguration(config) {
 }
 
 function updateHardwareConfiguration() {
-    const installedBays = Number(installedBaysInput.value);
+    const chargerCount = Number(powerNumChargersInput.value);
     const baysPerCharger = Number(powerBaysPerChargerInput.value);
     const chargerPowerKw = Number(powerMaxKwInput.value);
-    if (!Number.isFinite(installedBays) || installedBays < 1 ||
+    if (!Number.isFinite(chargerCount) || chargerCount < 1 ||
         !Number.isFinite(baysPerCharger) || baysPerCharger < 1 ||
         !Number.isFinite(chargerPowerKw) || chargerPowerKw <= 0) {
         return null;
     }
 
-    return PowerSizingService.deriveHardware(
-        installedBays, baysPerCharger, chargerPowerKw
+    return PowerSizingService.deriveFromChargers(
+        chargerCount, baysPerCharger, chargerPowerKw
     );
 }
 
-function handleHardwareDesignChange() {
-    const hardware = updateHardwareConfiguration();
+function handleHardwareDesignChange(event) {
+    const config = siteConfiguration.value;
+    // Changing bays per charger re-sizes the default charger count unless the user set one
+    const rederive = event?.target === powerBaysPerChargerInput &&
+        !config.userOverrodeBays && config.recommendedBays;
+    const hardware = rederive
+        ? PowerSizingService.deriveHardware(
+            config.recommendedBays,
+            Number(powerBaysPerChargerInput.value),
+            Number(powerMaxKwInput.value)
+        )
+        : updateHardwareConfiguration();
     if (!hardware) {
-        showPowerSimError('Installed bays, bays per charger, and charger power must be positive numbers.');
+        showPowerSimError('Number of chargers, bays per charger, and charger power must be positive numbers.');
         return;
     }
 
     siteConfiguration.update({
         ...hardware,
-        userOverrodeBays: true,
+        userOverrodeBays: event?.target === powerNumChargersInput || config.userOverrodeBays,
         peakPowerKw: null,
         dailyEnergyKwh: null,
         financialScenario: null
@@ -298,6 +310,10 @@ function renderExecutiveSummary() {
     const config = siteConfiguration.value;
     const financial = config.financialScenario;
     const riskRows = config.forecastRisk || [];
+    const year10Power = ForecastInfrastructureService.getYearTenPowerPosition(
+        state.forecastResult,
+        config
+    );
     if (!config.recommendedBays) {
         executiveSummaryContent.innerHTML = '<p class="investment-note">Complete Demand &amp; Capacity Planning to generate the executive recommendation.</p>';
         return;
@@ -324,10 +340,13 @@ function renderExecutiveSummary() {
             </section>
             <section class="executive-card">
                 <h4>Infrastructure</h4>
-                <div class="executive-metric"><span>Chargers required</span><strong>${config.chargerCount ?? 'n/a'}</strong></div>
+                <div class="executive-metric"><span>Chargers required (Year 1)</span><strong>${config.chargerCount ?? 'n/a'}</strong></div>
+                <div class="executive-metric"><span>Chargers required (Year 10 base case)</span><strong>${year10Power ? year10Power.requiredChargers : 'Pending forecast'}</strong></div>
                 <div class="executive-metric"><span>Charger rating</span><strong>${config.chargerPowerKw} kW</strong></div>
-                <div class="executive-metric"><span>Peak site load</span><strong>${config.peakPowerKw === null ? 'Pending' : `${config.peakPowerKw.toFixed(1)} kW`}</strong></div>
-                <div class="executive-metric"><span>Grid requirement</span><strong>${config.gridRequirementKw === null ? 'Pending' : `${config.gridRequirementKw.toFixed(0)} kW`}</strong></div>
+                <div class="executive-metric"><span>Peak site load (Year 1)</span><strong>${config.peakPowerKw === null ? 'Pending' : `${config.peakPowerKw.toFixed(1)} kW`}</strong></div>
+                <div class="executive-metric"><span>Grid requirement (Year 1)</span><strong>${config.gridRequirementKw === null ? 'Pending' : `${config.gridRequirementKw.toFixed(0)} kW`}</strong></div>
+                <div class="executive-metric"><span>Year 10 grid capacity (base case)</span><strong>${year10Power ? `${year10Power.gridCapacityKw.toFixed(0)} kW` : 'Pending forecast'}</strong></div>
+                <div class="executive-metric"><span>Year 10 additional power</span><strong>${year10Power ? (year10Power.additionalGridCapacityKw > 0 ? `+${year10Power.additionalGridCapacityKw.toFixed(0)} kW` : 'None expected') : 'Pending forecast'}</strong></div>
                 <div class="executive-metric"><span>Daily energy</span><strong>${config.dailyEnergyKwh === null ? 'Pending' : `${config.dailyEnergyKwh.toFixed(0)} kWh`}</strong></div>
             </section>
             <section class="executive-card">
@@ -955,7 +974,7 @@ loadExampleBtn.addEventListener('click', loadExample);
 runInvestmentBtn.addEventListener('click', handleInvestmentAnalysis);
 runForecastBtn.addEventListener('click', handleForecastScenarios);
 runPowerSimBtn.addEventListener('click', handlePowerSimulation);
-installedBaysInput.addEventListener('change', handleHardwareDesignChange);
+powerNumChargersInput.addEventListener('change', handleHardwareDesignChange);
 powerBaysPerChargerInput.addEventListener('change', handleHardwareDesignChange);
 powerMaxKwInput.addEventListener('change', handleHardwareDesignChange);
 [invCostPerBayInput, invOpexBayInput, invMarginKwhInput, invDiscountRateInput].forEach(input => {
@@ -1483,8 +1502,18 @@ async function handleInvestmentAnalysis() {
         showInvestmentError('Complete demand and hardware planning before financial evaluation.');
         return;
     }
-    const bayMin = Math.max(1, Math.min(recommendedBays - 2, installedBays));
-    const bayMax = Math.max(recommendedBays + 2, installedBays);
+    // Candidate bay counts are whole chargers: multiples of bays per charger,
+    // spanning the recommendation, the installed design and the Year 10 need
+    const baysPerCharger = siteConfiguration.value.baysPerCharger || 1;
+    const year10Bays = state.forecastResult?.weekly_recommendation?.year10_bays ?? 0;
+    const recommendedChargers = Math.ceil(recommendedBays / baysPerCharger);
+    const installedChargers = Math.ceil(installedBays / baysPerCharger);
+    const minChargers = Math.max(1, Math.min(recommendedChargers - 1, installedChargers));
+    const maxChargers = Math.max(
+        recommendedChargers + 1, installedChargers, Math.ceil(year10Bays / baysPerCharger)
+    );
+    const bayMin = minChargers * baysPerCharger;
+    const bayMax = maxChargers * baysPerCharger;
 
     // Analyse the day chosen in the results day picker, using the last profile
     const profile = { ...state.lastProfileConfig };
@@ -1506,7 +1535,8 @@ async function handleInvestmentAnalysis() {
             opex_per_bay: opexBay,
             horizon_years: 10,
             bay_min: bayMin,
-            bay_max: bayMax
+            bay_max: bayMax,
+            bay_step: baysPerCharger
         }
     };
 
@@ -1551,11 +1581,14 @@ function renderInvestmentResult() {
 
     const scenarioGroups = result.scenario_groups || [];
     const horizon = result.inputs?.horizon_years ?? 10;
-    const recommendedBays = siteConfiguration.value.recommendedBays;
+    const baysPerCharger = siteConfiguration.value.baysPerCharger || 1;
+    const recommendedBays = siteConfiguration.value.recommendedBays === null
+        ? null
+        : Math.ceil(siteConfiguration.value.recommendedBays / baysPerCharger) * baysPerCharger;
     investmentSummary.textContent =
         `Day analysed: ${result.day} · ${result.total_sessions} sessions/day · ` +
         `Each scenario applies its own 10-year demand and charging forecast to the investment cash flows. ` +
-        `Annual margin and net cash flow are Year 1 values; return metrics use all ${horizon} forecast years.` +
+        `Bay options are whole chargers (multiples of ${baysPerCharger} bays per charger). Annual margin and net cash flow are Year 1 values; return metrics use all ${horizon} forecast years.` +
         (recommendedBays !== null ? ` The current model recommendation is ${recommendedBays} bays (highlighted).` : '');
     investmentSummary.classList.remove('hidden');
 
@@ -1608,8 +1641,24 @@ function createInvestmentScenarioGroup(group, index, horizon, recommendedBays) {
         </div>
     `;
     const tbody = tableSection.querySelector('tbody');
+    const detail = document.createElement('div');
+    detail.className = 'investment-yearly-detail hidden';
+
+    const selectBays = bays => {
+        state.selectedInvestmentBays[group.scenario_name] = bays;
+        tbody.querySelectorAll('tr').forEach(row => {
+            row.classList.toggle('investment-row-selected', Number(row.dataset.bays) === bays);
+        });
+        const scenario = scenarios.find(s => s.bays === bays);
+        renderYearlyBreakdown(detail, scenario, group.scenario_name);
+    };
+
     scenarios.forEach(s => {
         const tr = document.createElement('tr');
+        tr.dataset.bays = String(s.bays);
+        tr.classList.add('investment-row-clickable');
+        tr.tabIndex = 0;
+        tr.title = 'Click to see the year-by-year breakdown';
         if (s.bays === recommendedBays) {
             tr.classList.add('investment-row-recommended');
         }
@@ -1625,9 +1674,22 @@ function createInvestmentScenarioGroup(group, index, horizon, recommendedBays) {
             <td>${formatPaybackYears(s.discounted_payback_years, horizon)}</td>
             <td>${gbpFormatter.format(s.npv)}</td>
         `;
+        tr.addEventListener('click', () => selectBays(s.bays));
+        tr.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                selectBays(s.bays);
+            }
+        });
         tbody.appendChild(tr);
     });
     section.appendChild(tableSection);
+    section.appendChild(detail);
+
+    const previouslySelected = state.selectedInvestmentBays[group.scenario_name];
+    if (scenarios.some(s => s.bays === previouslySelected)) {
+        selectBays(previouslySelected);
+    }
 
     const charts = document.createElement('div');
     charts.className = 'dist-charts-grid';
@@ -1657,6 +1719,52 @@ function createInvestmentScenarioGroup(group, index, horizon, recommendedBays) {
     });
 
     return section;
+}
+
+// Year-by-year sessions and cash flows for the bay count chosen in the scenario table
+function renderYearlyBreakdown(container, scenario, scenarioName) {
+    const rows = scenario?.yearly_breakdown;
+    if (!rows || rows.length === 0) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        return;
+    }
+
+    const number = value => Math.round(value).toLocaleString('en-GB');
+    const body = rows.map(r => `
+        <tr class="${r.year === 0 ? 'investment-yearly-capex' : ''}">
+            <td><strong>${r.year === 0 ? '0 (capex)' : r.year}</strong></td>
+            <td>${r.year === 0 ? '-' : number(r.served_sessions)}</td>
+            <td>${r.year === 0 ? '-' : number(r.lost_sessions)}</td>
+            <td>${r.year === 0 ? '-' : gbpFormatter.format(r.gross_margin)}</td>
+            <td>${r.year === 0 ? gbpFormatter.format(-r.capex) : gbpFormatter.format(-r.opex)}</td>
+            <td>${gbpFormatter.format(r.net_cash_flow)}</td>
+            <td>${gbpFormatter.format(r.discounted_cash_flow)}</td>
+            <td>${gbpFormatter.format(r.cumulative_discounted_cash_flow)}</td>
+        </tr>
+    `).join('');
+
+    container.innerHTML = `
+        <h4>Year-by-Year Breakdown: ${scenario.bays} Bays (${scenarioName})</h4>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Year</th>
+                        <th>Served Sessions</th>
+                        <th>Lost Sessions</th>
+                        <th>Gross Margin</th>
+                        <th>Opex / Capex</th>
+                        <th>Gross Cash Flow</th>
+                        <th>Discounted Cash Flow</th>
+                        <th>Cumulative Discounted</th>
+                    </tr>
+                </thead>
+                <tbody>${body}</tbody>
+            </table>
+        </div>
+    `;
+    container.classList.remove('hidden');
 }
 
 // Multi-series line chart for investment scenarios (null values render as gaps)
@@ -1899,14 +2007,17 @@ function applyRecommendedBaysDefaults() {
     }
     recommendedBaysExplanation.textContent = text;
     recommendedBaysExplanation.classList.remove('hidden');
-    const installedBays = siteConfiguration.value.userOverrodeBays
-        ? siteConfiguration.value.installedBays
-        : state.recommendedBays;
-    const hardware = PowerSizingService.deriveHardware(
-        installedBays,
-        siteConfiguration.value.baysPerCharger,
-        siteConfiguration.value.chargerPowerKw
-    );
+    const hardware = siteConfiguration.value.userOverrodeBays
+        ? PowerSizingService.deriveFromChargers(
+            siteConfiguration.value.chargerCount,
+            siteConfiguration.value.baysPerCharger,
+            siteConfiguration.value.chargerPowerKw
+        )
+        : PowerSizingService.deriveHardware(
+            state.recommendedBays,
+            siteConfiguration.value.baysPerCharger,
+            siteConfiguration.value.chargerPowerKw
+        );
     siteConfiguration.update({
         recommendedBays: state.recommendedBays,
         ...hardware
@@ -2274,7 +2385,7 @@ async function handlePowerSimulation() {
 
     const hardware = updateHardwareConfiguration();
     if (!hardware) {
-        showPowerSimError('Installed bays, bays per charger, and charger power must be valid positive numbers.');
+        showPowerSimError('Number of chargers, bays per charger, and charger power must be valid positive numbers.');
         return;
     }
     const { chargerCount: numChargers, chargerPowerKw: maxKw, baysPerCharger } = hardware;

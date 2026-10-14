@@ -102,7 +102,58 @@ class InvestmentCalculator:
                 capex, annual_net_cashflows
             ),
             npv=self._variable_npv(capex, annual_net_cashflows),
+            yearly_breakdown=self._yearly_breakdown(
+                bays, capex, annual_operations, annual_gross_margins
+            ),
         )
+
+    def _yearly_breakdown(
+        self,
+        bays: int,
+        capex: float,
+        annual_operations: list[tuple[float, float, float]],
+        annual_gross_margins: list[float],
+    ) -> tuple[dict, ...]:
+        """Year 0 (capex) plus one row per forecast year, with cumulative totals."""
+        annual_opex = bays * self.opex_per_bay
+        rows: list[dict] = [
+            {
+                "year": 0,
+                "served_sessions": 0.0,
+                "lost_sessions": 0.0,
+                "gross_margin": 0.0,
+                "opex": 0.0,
+                "capex": capex,
+                "net_cash_flow": -capex,
+                "discounted_cash_flow": -capex,
+                "cumulative_cash_flow": -capex,
+                "cumulative_discounted_cash_flow": -capex,
+            }
+        ]
+        cumulative = -capex
+        cumulative_discounted = -capex
+        for year, ((lost, served, _), margin) in enumerate(
+            zip(annual_operations, annual_gross_margins, strict=True), start=1
+        ):
+            net = margin - annual_opex
+            discounted = net / (1.0 + self.discount_rate) ** year
+            cumulative += net
+            cumulative_discounted += discounted
+            rows.append(
+                {
+                    "year": year,
+                    "served_sessions": served * DAYS_PER_YEAR,
+                    "lost_sessions": lost * DAYS_PER_YEAR,
+                    "gross_margin": margin,
+                    "opex": annual_opex,
+                    "capex": 0.0,
+                    "net_cash_flow": net,
+                    "discounted_cash_flow": discounted,
+                    "cumulative_cash_flow": cumulative,
+                    "cumulative_discounted_cash_flow": cumulative_discounted,
+                }
+            )
+        return tuple(rows)
 
     def estimate_peak_bays(self, profile: DayProfile) -> int:
         """Rough peak-hour bay requirement, used to default the scenario range."""

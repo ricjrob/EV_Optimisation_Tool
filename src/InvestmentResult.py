@@ -17,9 +17,10 @@ class InvestmentScenario:
     irr_pct: float | None
     discounted_payback_years: float | None
     npv: float
+    yearly_breakdown: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "bays": self.bays,
             "capex": self.capex,
             "lost_sessions_per_day": self.lost_sessions_per_day,
@@ -33,3 +34,6 @@ class InvestmentScenario:
             "discounted_payback_years": self.discounted_payback_years,
             "npv": self.npv,
         }
+        if self.yearly_breakdown:
+            data["yearly_breakdown"] = list(self.yearly_breakdown)
+        return data
